@@ -127,6 +127,16 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
         data={{"items",m_database.adminLogs(&error)}};
     }else if(type=="admin.station.add"){
         data=m_database.addStation(p,&error);
+    }else if(type=="admin.station.update"){
+        if(m_database.updateStation(p,&error))data={{"updated",true}};
+    }else if(type=="admin.station.delete"){
+        if(m_database.deleteStation(p.value("stationId").toVariant().toLongLong(),&error))data={{"deleted",true}};
+    }else if(type=="admin.charger.add"){
+        data=m_database.addCharger(p,&error);
+    }else if(type=="admin.charger.update"){
+        if(m_database.updateCharger(p,&error))data={{"updated",true}};
+    }else if(type=="admin.charger.delete"){
+        if(m_database.deleteCharger(p.value("chargerId").toVariant().toLongLong(),&error))data={{"deleted",true}};
     }else if(type=="admin.account.add"){
         const QString password=p.value("password").toString();
         if(password!=p.value("confirmPassword").toString())error="两次密码输入不一致";

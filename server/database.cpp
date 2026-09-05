@@ -365,6 +365,59 @@ QJsonObject Database::addStation(const QJsonObject &s,QString *error)
     QSqlQuery q(m_db);q.prepare("INSERT INTO stations(name,address,longitude,latitude,base_price,status) VALUES(?,?,?,?,?,'ONLINE')");q.addBindValue(name);q.addBindValue(address);q.addBindValue(lon);q.addBindValue(lat);q.addBindValue(price);if(!q.exec()){if(error)*error=q.lastError().text();return{};}const qint64 id=q.lastInsertId().toLongLong();QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ADD_STATION','STATION',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return{{"id",id}};
 }
 
+bool Database::updateStation(const QJsonObject &s,QString *error)
+{
+    const qint64 id=s.value("stationId").toVariant().toLongLong();
+    const QString name=s.value("name").toString().trimmed(),address=s.value("address").toString().trimmed(),status=s.value("status").toString();
+    const double lon=s.value("longitude").toDouble(),lat=s.value("latitude").toDouble(),price=s.value("price").toDouble();
+    if(id<=0||name.isEmpty()||address.isEmpty()||lon<-180||lon>180||lat<-90||lat>90||price<=0||!QStringList({"ONLINE","OFFLINE","MAINTENANCE"}).contains(status)){if(error)*error="请填写有效的电站资料和状态";return false;}
+    QSqlQuery q(m_db);q.prepare("UPDATE stations SET name=?,address=?,longitude=?,latitude=?,base_price=?,status=? WHERE id=?");
+    q.addBindValue(name);q.addBindValue(address);q.addBindValue(lon);q.addBindValue(lat);q.addBindValue(price);q.addBindValue(status);q.addBindValue(id);
+    if(!q.exec()||q.numRowsAffected()!=1){if(error)*error="电站不存在或保存失败："+q.lastError().text();return false;}
+    QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','UPDATE_STATION','STATION',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return true;
+}
+
+bool Database::deleteStation(qint64 id,QString *error)
+{
+    QSqlQuery used(m_db);used.prepare("SELECT COUNT(*) FROM chargers WHERE station_id=?");used.addBindValue(id);
+    if(!used.exec()||!used.next()){if(error)*error=used.lastError().text();return false;}
+    if(used.value(0).toInt()>0){if(error)*error="该电站仍有关联电桩，请先处理电桩后再删除";return false;}
+    QSqlQuery q(m_db);q.prepare("DELETE FROM stations WHERE id=?");q.addBindValue(id);
+    if(!q.exec()||q.numRowsAffected()!=1){if(error)*error="电站不存在或删除失败："+q.lastError().text();return false;}
+    QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','DELETE_STATION','STATION',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return true;
+}
+
+QJsonObject Database::addCharger(const QJsonObject &c,QString *error)
+{
+    const qint64 stationId=c.value("stationId").toVariant().toLongLong();
+    const QString code=c.value("code").toString().trimmed().toUpper(),type=c.value("chargerType").toString(),status=c.value("status").toString("IDLE");
+    const double power=c.value("power").toDouble();
+    if(stationId<=0||!QRegularExpression("^[A-Z0-9_-]{3,32}$").match(code).hasMatch()||!QStringList({"FAST","SLOW"}).contains(type)||power<=0||power>1000||!QStringList({"IDLE","OFFLINE","FAULT"}).contains(status)){if(error)*error="请填写有效的所属电站、设备编号、类型、功率和状态";return{};}
+    QSqlQuery station(m_db);station.prepare("SELECT id FROM stations WHERE id=?");station.addBindValue(stationId);if(!station.exec()||!station.next()){if(error)*error="所属电站不存在";return{};}
+    QSqlQuery q(m_db);q.prepare("INSERT INTO chargers(station_id,code,type,rated_power,status,total_sessions,total_duration) VALUES(?,?,?,?,?,0,0)");q.addBindValue(stationId);q.addBindValue(code);q.addBindValue(type);q.addBindValue(power);q.addBindValue(status);
+    if(!q.exec()){if(error)*error=q.lastError().nativeErrorCode()=="2067"?"设备编号已存在":q.lastError().text();return{};}
+    const qint64 id=q.lastInsertId().toLongLong();QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ADD_CHARGER','CHARGER',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return{{"id",id}};
+}
+
+bool Database::updateCharger(const QJsonObject &c,QString *error)
+{
+    const qint64 id=c.value("chargerId").toVariant().toLongLong(),stationId=c.value("stationId").toVariant().toLongLong();
+    const QString code=c.value("code").toString().trimmed().toUpper(),type=c.value("chargerType").toString(),status=c.value("status").toString();const double power=c.value("power").toDouble();
+    if(id<=0||stationId<=0||!QRegularExpression("^[A-Z0-9_-]{3,32}$").match(code).hasMatch()||!QStringList({"FAST","SLOW"}).contains(type)||power<=0||power>1000||!QStringList({"IDLE","OFFLINE","FAULT"}).contains(status)){if(error)*error="请填写有效的电桩资料";return false;}
+    QSqlQuery current(m_db);current.prepare("SELECT status FROM chargers WHERE id=?");current.addBindValue(id);if(!current.exec()||!current.next()){if(error)*error="电桩不存在";return false;}if(QStringList({"CHARGING","RESERVED"}).contains(current.value(0).toString())){if(error)*error="正在充电或已预约的电桩不能修改";return false;}
+    QSqlQuery q(m_db);q.prepare("UPDATE chargers SET station_id=?,code=?,type=?,rated_power=?,status=? WHERE id=?");q.addBindValue(stationId);q.addBindValue(code);q.addBindValue(type);q.addBindValue(power);q.addBindValue(status);q.addBindValue(id);
+    if(!q.exec()||q.numRowsAffected()!=1){if(error)*error=q.lastError().nativeErrorCode()=="2067"?"设备编号已存在":q.lastError().text();return false;}
+    QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','UPDATE_CHARGER','CHARGER',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return true;
+}
+
+bool Database::deleteCharger(qint64 id,QString *error)
+{
+    QSqlQuery current(m_db);current.prepare("SELECT status FROM chargers WHERE id=?");current.addBindValue(id);if(!current.exec()||!current.next()){if(error)*error="电桩不存在";return false;}if(QStringList({"CHARGING","RESERVED"}).contains(current.value(0).toString())){if(error)*error="正在充电或已预约的电桩不能删除";return false;}
+    QSqlQuery used(m_db);used.prepare("SELECT (SELECT COUNT(*) FROM charge_orders WHERE charger_id=?)+(SELECT COUNT(*) FROM reservations WHERE charger_id=?)+(SELECT COUNT(*) FROM telemetry WHERE charger_id=?)");used.addBindValue(id);used.addBindValue(id);used.addBindValue(id);if(!used.exec()||!used.next()){if(error)*error=used.lastError().text();return false;}if(used.value(0).toInt()>0){if(error)*error="该电桩已有订单、预约或遥测记录，为保留历史数据不能删除；可将状态改为 OFFLINE";return false;}
+    QSqlQuery q(m_db);q.prepare("DELETE FROM chargers WHERE id=?");q.addBindValue(id);if(!q.exec()||q.numRowsAffected()!=1){if(error)*error=q.lastError().text();return false;}
+    QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','DELETE_CHARGER','CHARGER',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return true;
+}
+
 bool Database::setUserStatus(qint64 id,const QString &status,QString *error)
 {
     if(!QStringList({"NORMAL","FROZEN","LOCKED"}).contains(status)){if(error)*error="无效用户状态";return false;}QSqlQuery q(m_db);q.prepare("UPDATE users SET status=?,failed_attempts=CASE WHEN ?='NORMAL' THEN 0 ELSE failed_attempts END,locked_at=CASE WHEN ?='NORMAL' THEN NULL ELSE locked_at END WHERE id=?");q.addBindValue(status);q.addBindValue(status);q.addBindValue(status);q.addBindValue(id);if(!q.exec()||q.numRowsAffected()!=1){if(error)*error="用户不存在";return false;}QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN',?,'USER',?,'SUCCESS',?)");log.addBindValue(status=="FROZEN"?"FREEZE_USER":status=="LOCKED"?"LOCK_USER":"UNLOCK_USER");log.addBindValue(id);log.addBindValue(now());log.exec();return true;

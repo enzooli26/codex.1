@@ -31,6 +31,11 @@ public:
     QJsonArray adminUsers(const QString &phoneFilter, QString *error);
     QJsonArray adminLogs(QString *error);
     QJsonObject addStation(const QJsonObject &station, QString *error);
+    bool updateStation(const QJsonObject &station, QString *error);
+    bool deleteStation(qint64 stationId, QString *error);
+    QJsonObject addCharger(const QJsonObject &charger, QString *error);
+    bool updateCharger(const QJsonObject &charger, QString *error);
+    bool deleteCharger(qint64 chargerId, QString *error);
     bool setUserStatus(qint64 userId, const QString &status, QString *error);
     bool restartCharger(qint64 chargerId, QString *error);
     int expireReservations(QString *error);
