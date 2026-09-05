@@ -1,7 +1,7 @@
 #pragma once
 #include <QObject>
 #include <QJsonObject>
-#include <QTcpSocket>
+#include <QSslSocket>
 #include <QVariantList>
 
 class MobileClient : public QObject
@@ -21,7 +21,7 @@ class MobileClient : public QObject
 
 public:
     explicit MobileClient(QObject *parent=nullptr);
-    bool connected() const{return m_socket.state()==QAbstractSocket::ConnectedState;}
+    bool connected() const{return m_socket.isEncrypted();}
     bool loggedIn() const{return m_userId>0;}
     QString connectionText() const{return connected()?QStringLiteral("在线"):QStringLiteral("未连接");}
     QString userText() const{return m_userText;}
@@ -34,8 +34,9 @@ public:
     bool reserved() const{return m_reservationId>0;}
 
     Q_INVOKABLE void connectServer(const QString &host,int port);
-    Q_INVOKABLE void login(const QString &phone);
-    Q_INVOKABLE void recharge(double amount);
+    Q_INVOKABLE void login(const QString &phone,const QString &password);
+    Q_INVOKABLE void registerUser(const QString &phone,const QString &password,const QString &confirmPassword);
+    Q_INVOKABLE void recharge(double amount,const QString &password);
     Q_INVOKABLE void refreshStations();
     Q_INVOKABLE void refreshOrders();
     Q_INVOKABLE void selectStation(int index);
@@ -55,7 +56,7 @@ private:
     void send(const QString &type,const QJsonObject &payload=QJsonObject());
     void handle(const QJsonObject &message);
     qint64 selectedChargerId() const;
-    QTcpSocket m_socket; QByteArray m_buffer; QVariantList m_stations,m_orders;
+    QSslSocket m_socket; QByteArray m_buffer; QVariantList m_stations,m_orders;
     qint64 m_userId=0,m_reservationId=0,m_orderId=0; int m_selectedIndex=-1;
     double m_balance=0; QString m_userText=QStringLiteral("请先登录");
     QString m_chargeStatus=QStringLiteral("尚未开始充电");

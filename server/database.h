@@ -9,10 +9,12 @@ class Database
 public:
     ~Database();
     bool open(const QString &path, QString *error);
-    QJsonObject loginUser(const QString &phone, QString *error);
-    QJsonObject recharge(qint64 userId, double amount, QString *error);
+    QJsonObject registerUser(const QString &phone, const QString &password, QString *error);
+    QJsonObject loginUser(const QString &phone, const QString &password, QString *error);
+    QJsonObject recharge(qint64 userId, double amount, const QString &password, QString *error);
     QJsonArray userOrders(qint64 userId, QString *error);
     bool loginAdmin(const QString &username, const QString &password, QString *error);
+    bool registerAdmin(const QString &username, const QString &password, QString *error);
     QJsonArray stationList(QString *error);
     QJsonObject createReservation(qint64 userId, qint64 chargerId, QString *error);
     bool cancelReservation(qint64 userId, qint64 reservationId, const QString &reason, QString *error);
@@ -29,6 +31,11 @@ public:
     QJsonArray adminUsers(const QString &phoneFilter, QString *error);
     QJsonArray adminLogs(QString *error);
     QJsonObject addStation(const QJsonObject &station, QString *error);
+    bool updateStation(const QJsonObject &station, QString *error);
+    bool deleteStation(qint64 stationId, QString *error);
+    QJsonObject addCharger(const QJsonObject &charger, QString *error);
+    bool updateCharger(const QJsonObject &charger, QString *error);
+    bool deleteCharger(qint64 chargerId, QString *error);
     bool setUserStatus(qint64 userId, const QString &status, QString *error);
     bool restartCharger(qint64 chargerId, QString *error);
     int expireReservations(QString *error);
@@ -39,4 +46,6 @@ private:
     bool begin(QString *error);
     bool commit(QString *error);
     void rollback();
+    bool ensureColumn(const QString &table, const QString &column,
+                      const QString &definition, QString *error);
 };

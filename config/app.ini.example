@@ -2,6 +2,10 @@
 host=127.0.0.1
 port=9527
 
+[tls]
+certificate=server-cert.pem
+private_key=server-key.pem
+
 [database]
 path=data/charging.db
 
@@ -12,4 +16,3 @@ geolocation_enabled=true
 
 [reservation]
 timeout_minutes=20
-

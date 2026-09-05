@@ -1,0 +1,32 @@
+# Build outputs
+build*/
+debug/
+release/
+*.o
+*.obj
+*.exe
+*.dll
+*.a
+Makefile
+Makefile.*
+.qmake.stash
+moc_*
+ui_*
+qrc_*
+
+# Local runtime state
+config/app.ini
+config/server-key.pem
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Editor and operating-system files
+.vs/
+.idea/
+*.user
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

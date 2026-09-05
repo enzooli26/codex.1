@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Qt: Configure",
+      "type": "shell",
+      "command": "mkdir -p '${workspaceFolder}/build-vscode' && cd '${workspaceFolder}/build-vscode' && qmake ../charging-platform.pro",
+      "windows": {
+        "command": "if (!(Test-Path '${workspaceFolder}\\build-vscode')) { New-Item -ItemType Directory '${workspaceFolder}\\build-vscode' | Out-Null }; Set-Location '${workspaceFolder}\\build-vscode'; & 'D:\\QtSDK\\5.15.2\\mingw81_64\\bin\\qmake.exe' ..\\charging-platform.pro -spec win32-g++"
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Qt: Build",
+      "type": "shell",
+      "dependsOn": "Qt: Configure",
+      "command": "cd '${workspaceFolder}/build-vscode' && make -j$(nproc)",
+      "windows": {
+        "command": "Set-Location '${workspaceFolder}\\build-vscode'; & 'D:\\QtSDK\\Tools\\mingw810_64\\bin\\mingw32-make.exe' -j4"
+      },
+      "problemMatcher": "$gcc",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Run: Server",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build-vscode' && ./server/ev_server --config ../config/app.ini",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; if (!(Test-Path '${workspaceFolder}\\config\\app.ini')) { Copy-Item '${workspaceFolder}\\config\\app.ini.example' '${workspaceFolder}\\config\\app.ini' }; Set-Location '${workspaceFolder}\\build-vscode'; & .\\server\\release\\ev_server.exe --config ..\\config\\app.ini"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Admin",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build-vscode' && ./admin_client/ev_admin_client",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build-vscode\\admin_client' -Recurse -Filter ev_admin_client.exe | Select-Object -First 1; if (!$exe) { throw 'ev_admin_client.exe not found' }; & $exe.FullName"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Desktop User",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build-vscode' && ./user_client/ev_user_client",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build-vscode\\user_client' -Recurse -Filter ev_user_client.exe | Select-Object -First 1; if (!$exe) { throw 'ev_user_client.exe not found' }; & $exe.FullName"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Device Simulator",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build-vscode' && ./device_simulator/ev_device_simulator --code DL-SW-001",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build-vscode\\device_simulator' -Recurse -Filter ev_device_simulator.exe | Select-Object -First 1; if (!$exe) { throw 'ev_device_simulator.exe not found' }; & $exe.FullName --code DL-SW-001"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Mobile Preview",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build-vscode' && ./mobile_client/ev_mobile_client",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build-vscode\\mobile_client' -Recurse -Filter ev_mobile_client.exe | Select-Object -First 1; if (!$exe) { throw 'ev_mobile_client.exe not found' }; & $exe.FullName"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

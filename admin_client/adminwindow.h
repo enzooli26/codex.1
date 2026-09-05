@@ -1,6 +1,6 @@
 #pragma once
 #include <QMainWindow>
-#include <QTcpSocket>
+#include <QSslSocket>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QStringList>
@@ -14,11 +14,15 @@ public:
     ~AdminWindow();
 private slots:
     void connectServer(); void login(); void refreshAll(); void readMessages();
-    void addStation(); void changeUserStatus(const QString &status); void restartCharger();
+    void addStation(); void updateStation(); void deleteStation();
+    void addCharger(); void updateCharger(); void deleteCharger();
+    void addAdmin(); void changeUserStatus(const QString &status); void restartCharger();
 private:
     void send(const QString &type,const QJsonObject &payload=QJsonObject());
     void loadPage(int index); void fillTable(class QTableWidget *table,const QJsonArray &items,const QStringList &keys);
+    void updateStationChoices(const QJsonArray &items);
     void updateDashboard(const QJsonObject &data);
-    Ui::AdminWindow *ui; QTcpSocket m_socket; QByteArray m_buffer;
-    QtCharts::QChartView *m_revenueChart=nullptr; QtCharts::QChartView *m_statusChart=nullptr; bool m_loggedIn=false;
+    Ui::AdminWindow *ui; QSslSocket m_socket; QByteArray m_buffer;
+    QtCharts::QChartView *m_revenueChart=nullptr; QtCharts::QChartView *m_statusChart=nullptr;
+    QtCharts::QChartView *m_stationChart=nullptr; bool m_loggedIn=false;
 };
