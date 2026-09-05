@@ -1,0 +1,1 @@
+<RCC><qresource prefix="/tls"><file alias="server-cert.pem">../config/server-cert.pem</file></qresource></RCC>
