@@ -1,0 +1,18 @@
+INSERT OR IGNORE INTO users(id,phone,nickname,balance,status,created_at) VALUES
+(101,'13800000101','测试车主101',200.00,'NORMAL','2026-09-01T08:00:00Z'),
+(102,'13800000102','测试车主102',80.00,'NORMAL','2026-09-01T09:00:00Z'),
+(103,'13800000103','冻结车主103',50.00,'FROZEN','2026-09-01T10:00:00Z');
+
+INSERT OR IGNORE INTO charge_orders(id,user_id,charger_id,status,mode,target,start_at,end_at,energy,duration,amount) VALUES
+(1001,101,1,'COMPLETED','ENERGY',20,'2026-09-02T08:00:00Z','2026-09-02T08:40:00Z',20.00,2400,24.00),
+(1002,102,2,'COMPLETED','AMOUNT',10,'2026-09-03T12:00:00Z','2026-09-03T12:25:00Z',8.33,1500,10.00);
+
+INSERT OR IGNORE INTO wallet_transactions(id,user_id,type,amount,balance_after,related_order_id,created_at) VALUES
+(2001,101,'RECHARGE',224.00,224.00,NULL,'2026-09-01T08:05:00Z'),
+(2002,101,'CHARGE_PAYMENT',-24.00,200.00,1001,'2026-09-02T08:40:00Z'),
+(2003,102,'RECHARGE',90.00,90.00,NULL,'2026-09-01T09:05:00Z'),
+(2004,102,'CHARGE_PAYMENT',-10.00,80.00,1002,'2026-09-03T12:25:00Z');
+
+INSERT OR IGNORE INTO alarms(id,charger_id,level,type,message,status,created_at,resolved_at) VALUES
+(3001,3,'WARNING','TEMPERATURE_HIGH','模拟温度偏高告警','RESOLVED','2026-09-03T14:00:00Z','2026-09-03T14:05:00Z');
+

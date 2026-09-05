@@ -1,0 +1,75 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Qt: Configure",
+      "type": "shell",
+      "command": "mkdir -p '${workspaceFolder}/build' && cd '${workspaceFolder}/build' && qmake ../charging-platform/charging-platform.pro",
+      "windows": {
+        "command": "if (!(Test-Path '${workspaceFolder}\\build')) { New-Item -ItemType Directory '${workspaceFolder}\\build' | Out-Null }; Set-Location '${workspaceFolder}\\build'; & 'D:\\QtSDK\\5.15.2\\mingw81_64\\bin\\qmake.exe' ..\\charging-platform\\charging-platform.pro -spec win32-g++"
+      },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Qt: Build",
+      "type": "shell",
+      "dependsOn": "Qt: Configure",
+      "command": "cd '${workspaceFolder}/build' && make -j$(nproc)",
+      "windows": {
+        "command": "Set-Location '${workspaceFolder}\\build'; & 'D:\\QtSDK\\Tools\\mingw810_64\\bin\\mingw32-make.exe' -j4"
+      },
+      "problemMatcher": "$gcc",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Run: Server",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build' && ./server/ev_server --config ../charging-platform/config/app.ini",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; if (!(Test-Path '${workspaceFolder}\\charging-platform\\config\\app.ini')) { Copy-Item '${workspaceFolder}\\charging-platform\\config\\app.ini.example' '${workspaceFolder}\\charging-platform\\config\\app.ini' }; Set-Location '${workspaceFolder}\\build'; & .\\server\\release\\ev_server.exe --config ..\\charging-platform\\config\\app.ini"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Admin",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build' && ./admin_client/ev_admin_client",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build\\admin_client' -Recurse -Filter ev_admin_client.exe | Select-Object -First 1; if (!$exe) { throw 'ev_admin_client.exe not found' }; & $exe.FullName"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Desktop User",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build' && ./user_client/ev_user_client",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build\\user_client' -Recurse -Filter ev_user_client.exe | Select-Object -First 1; if (!$exe) { throw 'ev_user_client.exe not found' }; & $exe.FullName"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Device Simulator",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build' && ./device_simulator/ev_device_simulator --code DL-SW-001",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build\\device_simulator' -Recurse -Filter ev_device_simulator.exe | Select-Object -First 1; if (!$exe) { throw 'ev_device_simulator.exe not found' }; & $exe.FullName --code DL-SW-001"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run: Mobile Preview",
+      "type": "shell",
+      "dependsOn": "Qt: Build",
+      "command": "cd '${workspaceFolder}/build' && ./mobile_client/ev_mobile_client",
+      "windows": {
+        "command": "$env:Path='D:\\QtSDK\\5.15.2\\mingw81_64\\bin;'+$env:Path; $exe=Get-ChildItem '${workspaceFolder}\\build\\mobile_client' -Recurse -Filter ev_mobile_client.exe | Select-Object -First 1; if (!$exe) { throw 'ev_mobile_client.exe not found' }; & $exe.FullName"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

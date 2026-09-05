@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>UserWindow</class>
+ <widget class="QMainWindow" name="UserWindow">
+  <property name="windowTitle"><string>悦充 · 用户端</string></property>
+  <property name="minimumSize"><size><width>420</width><height>480</height></size></property>
+  <property name="styleSheet"><string notr="true">QMainWindow,QWidget#centralwidget{background:#eef3f9;color:#23314a;font-family:&quot;Microsoft YaHei&quot;;font-size:14px} QFrame#phoneShell{background:#f7f9fc;border:1px solid #dce4ef;border-radius:24px} QFrame.card{background:#ffffff;border:1px solid #e5eaf1;border-radius:14px} QLabel#brandLabel{font-size:26px;font-weight:700;color:#2457d6} QLabel#sloganLabel{color:#8190a7} QLabel.sectionTitle{font-size:16px;font-weight:700;color:#263550} QLabel#balanceLabel{font-size:24px;font-weight:700;color:#2457d6} QLabel#statusLabel{color:#d85b6a;font-weight:600} QLabel#chargeStatusLabel{background:#edf3ff;color:#315fc4;border-radius:9px;padding:10px;font-weight:600} QLineEdit,QSpinBox,QDoubleSpinBox,QComboBox{background:#f7f9fd;border:1px solid #d9e1ec;border-radius:8px;padding:8px;min-height:24px;color:#273650;selection-background-color:#4878e8} QLineEdit:focus,QSpinBox:focus,QDoubleSpinBox:focus,QComboBox:focus{border:1px solid #4878e8;background:#ffffff} QPushButton{background:#416fe3;border:0;border-radius:9px;padding:9px 12px;min-height:24px;color:#ffffff;font-weight:600} QPushButton:hover{background:#315fd1} QPushButton:pressed{background:#254da9} QPushButton.secondary{background:#edf2fb;color:#3d5f9f;border:1px solid #d9e3f4} QPushButton.danger{background:#fff0f2;color:#cc5062;border:1px solid #f4d4da} QTableWidget{background:#ffffff;alternate-background-color:#f8faff;border:1px solid #e5eaf1;border-radius:9px;gridline-color:#edf1f6;color:#344158} QHeaderView::section{background:#f2f6fb;color:#6b7b92;border:0;border-right:1px solid #e4eaf2;padding:7px;font-weight:600} QTableWidget::item{padding:4px} QTableWidget::item:selected{background:#dfe8ff;color:#244ba6} QScrollBar:vertical{background:transparent;width:8px;border-radius:4px;margin:2px} QScrollBar::handle:vertical{background:#c0c8d8;border-radius:4px;min-height:24px} QScrollBar::handle:vertical:hover{background:#a0aac0} QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0} QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{background:transparent} QScrollArea{border:0;background:transparent} QScrollArea>QWidget>QWidget{background:transparent}</string></property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="outerLayout">
+    <property name="leftMargin"><number>8</number></property>
+    <property name="topMargin"><number>8</number></property>
+    <property name="rightMargin"><number>8</number></property>
+    <property name="bottomMargin"><number>8</number></property>
+    <item><widget class="QScrollArea" name="scrollArea">
+     <property name="widgetResizable"><bool>true</bool></property>
+     <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+     <widget class="QWidget" name="scrollContent">
+      <layout class="QVBoxLayout" name="scrollLayout">
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item><widget class="QFrame" name="phoneShell">
+        <layout class="QVBoxLayout" name="verticalLayout">
+         <property name="spacing"><number>10</number></property>
+         <property name="leftMargin"><number>14</number></property>
+         <property name="topMargin"><number>16</number></property>
+         <property name="rightMargin"><number>14</number></property>
+         <property name="bottomMargin"><number>14</number></property>
+         <item><layout class="QHBoxLayout" name="brandLayout">
+          <item><layout class="QVBoxLayout">
+           <item><widget class="QLabel" name="brandLabel"><property name="text"><string>⚡ 悦充</string></property></widget></item>
+           <item><widget class="QLabel" name="sloganLabel"><property name="text"><string>轻松找桩，安心充电</string></property></widget></item>
+          </layout></item>
+          <item><spacer name="brandSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>30</width><height>20</height></size></property></spacer></item>
+          <item><widget class="QLabel" name="statusLabel"><property name="text"><string>● 未连接</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set></property></widget></item>
+         </layout></item>
+         <item><widget class="QFrame" name="connectionCard"><property name="class" stdset="0"><string>card</string></property>
+          <layout class="QGridLayout" name="connectionLayout">
+           <item row="0" column="0" colspan="3"><widget class="QLabel" name="connectionTitle"><property name="text"><string>服务器连接</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
+           <item row="1" column="0"><widget class="QLineEdit" name="hostEdit"><property name="text"><string>127.0.0.1</string></property><property name="placeholderText"><string>服务器地址</string></property></widget></item>
+           <item row="1" column="1"><widget class="QSpinBox" name="portSpin"><property name="maximum"><number>65535</number></property><property name="value"><number>9527</number></property></widget></item>
+           <item row="1" column="2"><widget class="QPushButton" name="connectButton"><property name="text"><string>连接</string></property></widget></item>
+          </layout>
+         </widget></item>
+         <item><widget class="QFrame" name="accountCard"><property name="class" stdset="0"><string>card</string></property>
+          <layout class="QVBoxLayout" name="accountLayout">
+           <item><layout class="QHBoxLayout">
+            <item><widget class="QLabel" name="accountTitle"><property name="text"><string>我的账户</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
+            <item><spacer name="accountSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+            <item><widget class="QLabel" name="welcomeLabel"><property name="text"><string>尚未登录</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set></property></widget></item>
+           </layout></item>
+           <item><layout class="QGridLayout" name="loginLayout">
+            <item row="0" column="0"><widget class="QLineEdit" name="phoneEdit"><property name="placeholderText"><string>11 位手机号</string></property><property name="maxLength"><number>11</number></property></widget></item>
+            <item row="0" column="1"><widget class="QLineEdit" name="passwordEdit"><property name="placeholderText"><string>密码（至少 6 位）</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+            <item row="1" column="0"><widget class="QLineEdit" name="confirmPasswordEdit"><property name="placeholderText"><string>注册时确认密码</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+            <item row="1" column="1"><layout class="QHBoxLayout">
+             <item><widget class="QPushButton" name="loginButton"><property name="text"><string>登录</string></property></widget></item>
+             <item><widget class="QPushButton" name="registerButton"><property name="text"><string>注册</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+            </layout></item>
+           </layout></item>
+           <item><layout class="QVBoxLayout" name="walletLayout">
+            <item><widget class="QLabel" name="walletText"><property name="text"><string>模拟钱包充值（需验证密码）</string></property></widget></item>
+            <item><layout class="QHBoxLayout">
+             <item><widget class="QDoubleSpinBox" name="rechargeSpin"><property name="maximum"><double>10000.000000000000000</double></property><property name="value"><double>100.000000000000000</double></property><property name="prefix"><string>¥ </string></property></widget></item>
+             <item><widget class="QLineEdit" name="rechargePasswordEdit"><property name="placeholderText"><string>登录密码</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+             <item><widget class="QPushButton" name="rechargeButton"><property name="text"><string>充值</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+            </layout></item>
+           </layout></item>
+          </layout>
+         </widget></item>
+         <item><widget class="QFrame" name="stationCard"><property name="class" stdset="0"><string>card</string></property>
+          <layout class="QVBoxLayout" name="stationLayout">
+           <item><layout class="QHBoxLayout">
+            <item><widget class="QLabel" name="stationTitle"><property name="text"><string>附近充电站</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
+            <item><spacer name="stationSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+            <item><widget class="QPushButton" name="refreshButton"><property name="text"><string>刷新</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+           </layout></item>
+           <item><widget class="QTableWidget" name="stationTable">
+            <property name="minimumSize"><size><width>0</width><height>90</height></size></property>
+            <property name="alternatingRowColors"><bool>true</bool></property>
+            <property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property>
+            <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+            <property name="columnCount"><number>4</number></property>
+            <column><property name="text"><string>站名</string></property></column>
+            <column><property name="text"><string>地址</string></property></column>
+            <column><property name="text"><string>电价</string></property></column>
+            <column><property name="text"><string>空闲</string></property></column>
+           </widget></item>
+           <item><layout class="QHBoxLayout" name="reservationLayout">
+            <item><widget class="QPushButton" name="reserveButton"><property name="text"><string>预约 20 分钟</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+            <item><widget class="QPushButton" name="cancelButton"><property name="text"><string>取消预约</string></property><property name="class" stdset="0"><string>danger</string></property></widget></item>
+            <item><spacer name="reservationSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+           </layout></item>
+          </layout>
+         </widget></item>
+         <item><widget class="QFrame" name="chargeCard"><property name="class" stdset="0"><string>card</string></property>
+          <layout class="QVBoxLayout" name="chargeCardLayout">
+           <item><widget class="QLabel" name="chargeTitle"><property name="text"><string>开始充电</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
+           <item><layout class="QHBoxLayout" name="chargeOptionsLayout">
+            <item><widget class="QComboBox" name="modeCombo">
+             <item><property name="text"><string>按金额</string></property></item>
+             <item><property name="text"><string>按电量</string></property></item>
+             <item><property name="text"><string>按时间</string></property></item>
+            </widget></item>
+            <item><widget class="QDoubleSpinBox" name="targetSpin">
+             <property name="minimum"><double>0.010000000000000</double></property>
+             <property name="maximum"><double>9999.000000000000000</double></property>
+             <property name="value"><double>10.000000000000000</double></property>
+             <property name="prefix"><string>目标 </string></property>
+            </widget></item>
+           </layout></item>
+           <item><layout class="QHBoxLayout" name="chargeButtonsLayout">
+            <item><widget class="QPushButton" name="startButton"><property name="text"><string>开始充电</string></property></widget></item>
+            <item><widget class="QPushButton" name="stopButton"><property name="text"><string>停止并结算</string></property><property name="class" stdset="0"><string>danger</string></property></widget></item>
+           </layout></item>
+           <item><widget class="QLabel" name="chargeStatusLabel"><property name="text"><string>当前无充电订单</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+          </layout>
+         </widget></item>
+         <item><widget class="QLabel" name="footerLabel"><property name="text"><string>首页   ·   找桩   ·   充电   ·   我的</string></property><property name="alignment"><set>Qt::AlignCenter</set></property><property name="styleSheet"><string notr="true">color:#8794a8;padding:4px</string></property></widget></item>
+        </layout>
+       </widget></item>
+       <item><spacer name="bottomSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property></spacer></item>
+      </layout>
+     </widget>
+    </widget></item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/><connections/>
+</ui>
