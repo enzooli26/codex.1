@@ -40,7 +40,8 @@ cp config/app.ini.example config/app.ini
 
 ```bash
 ./build/server/ev_server --config config/app.ini
-./build/device_simulator/ev_device_simulator --code DL-SW-001
+./build/device_simulator/ev_device_simulator --code DL-SW-001 \
+  --database data/charger-edge.db --token course-device-token
 ./build/user_client/ev_user_client
 ./build/mobile_client/ev_mobile_client
 ./build/admin_client/ev_admin_client
@@ -62,5 +63,6 @@ sqlite3 data/charging.db < database/test_data.sql
 
 - 提示 `QSQLITE driver not loaded`：安装 `libqt5sql5-sqlite` 并重新启动。
 - 客户端无法连接：确认服务器已启动，端口与 `config/app.ini` 一致，且防火墙允许该端口。
+- 提示充电桩与服务器连接断开：确认充电桩端进程正在运行、`--code` 与中心数据库电桩编号一致，且 `--token` 与 `device/token` 一致。
 - 地图不可用：检查 `map/api_key`，并确认虚拟机能够联网。
 - 中文显示异常：安装常用中文字体，例如 `fonts-noto-cjk`。

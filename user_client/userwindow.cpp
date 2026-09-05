@@ -58,12 +58,14 @@ void UserWindow::readMessages(){m_buffer.append(m_socket.readAll());QString erro
 void UserWindow::showResult(const QJsonObject &m)
 {
     if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());return;}
-    const QString type=m.value("type").toString();const QJsonObject data=m.value("data").toObject();
-    if(type=="auth.user.result"||type=="auth.user.register.result"){m_userId=data.value("id").toVariant().toLongLong();ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));refreshStations();QMessageBox::information(this,"成功",type.contains("register")?"注册成功并已登录":"登录成功");}
+    const QString type=m.value("type").toString();const QJsonObject data=type=="charge.completed"?m.value("payload").toObject():m.value("data").toObject();
+    if(type=="auth.user.result"||type=="auth.user.register.result"){m_userId=data.value("id").toVariant().toLongLong();ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));refreshStations();sendRequest("user.orders");QMessageBox::information(this,"成功",type.contains("register")?"注册成功并已登录":"登录成功");}
     else if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="station.list.result"){const QJsonArray rows=data.value("stations").toArray();ui->stationTable->setRowCount(rows.size());for(int r=0;r<rows.size();++r){const auto s=rows[r].toObject();QStringList vals={s.value("name").toString(),s.value("address").toString(),QString::number(s.value("price").toDouble(),'f',2),QString::number(s.value("idle").toInt())+"/"+QString::number(s.value("total").toInt())};for(int c=0;c<vals.size();++c){auto *it=new QTableWidgetItem(vals[c]);it->setData(Qt::UserRole,s.value("chargerId").toVariant());ui->stationTable->setItem(r,c,it);}}}
+    else if(type=="user.orders.result"){for(const auto &value:data.value("items").toArray()){const QJsonObject order=value.toObject();if(order.value("status").toString()=="CHARGING"){m_orderId=order.value("id").toVariant().toLongLong();ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));break;}}}
     else if(type=="reservation.create.result"){m_reservationId=data.value("reservationId").toVariant().toLongLong();QMessageBox::information(this,"预约成功","预约有效期 20 分钟");}
     else if(type=="reservation.cancel.result"){m_reservationId=0;QMessageBox::information(this,"预约已取消","订单已取消");refreshStations();}
     else if(type=="charge.start.result"){m_orderId=data.value("orderId").toVariant().toLongLong();ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}
     else if(type=="charge.stop.result"){ui->chargeStatusLabel->setText("已完成，费用 ¥"+QString::number(data.value("amount").toDouble(),'f',2));m_orderId=0;}
+    else if(type=="charge.completed"){ui->chargeStatusLabel->setText("充电目标已完成，费用 ¥"+QString::number(data.value("amount").toDouble(),'f',2));m_orderId=0;QMessageBox::information(this,"充电完成","充电桩已达到设定目标并完成结算");}
 }

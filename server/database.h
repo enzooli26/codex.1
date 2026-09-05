@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QSqlDatabase>
+#include <QStringList>
 
 class Database
 {
@@ -20,8 +21,21 @@ public:
     bool cancelReservation(qint64 userId, qint64 reservationId, const QString &reason, QString *error);
     QJsonObject startCharge(qint64 userId, qint64 chargerId, const QString &mode,
                             double target, QString *error);
+    QJsonObject createPendingCharge(qint64 userId, qint64 chargerId,
+                                    const QString &mode, double target, QString *error);
+    QJsonObject activatePendingCharge(qint64 userId, qint64 orderId, QString *error);
+    bool cancelPendingCharge(qint64 orderId, const QString &reason, QString *error);
+    QJsonObject activeOrderForStop(qint64 userId, qint64 orderId, QString *error);
+    QJsonObject completeChargeFromDevice(qint64 orderId, double energy,
+                                         int duration, const QString &endAt,
+                                         QString *error);
+    QJsonObject syncDeviceOrder(qint64 orderId, const QString &chargerCode,
+                                const QString &status, double energy,
+                                int duration, const QString &endAt,
+                                QString *error);
     QJsonObject stopCharge(qint64 userId, qint64 orderId, QString *error);
     bool updateHeartbeat(const QString &chargerCode, const QString &status, QString *error);
+    bool markDeviceOffline(const QStringList &chargerCodes, QString *error);
     bool insertTelemetry(const QString &chargerCode, double voltage, double current,
                          double power, double soc, QString *error);
     QJsonObject adminSummary(QString *error);
