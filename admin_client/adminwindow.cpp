@@ -17,6 +17,8 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QPainter>
+#include <QRegularExpression>
+#include <QStatusBar>
 #include <QTableWidget>
 #include <QTimer>
 #include <QUuid>
@@ -86,7 +88,16 @@ void AdminWindow::readMessages()
 void AdminWindow::addStation(){send("admin.station.add",{{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()}});}
 void AdminWindow::updateStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电站");return;}send("admin.station.update",{{"stationId",ui->stationsTable->item(r,0)->text().toLongLong()},{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()},{"status",ui->stationStatusCombo->currentText()}});}
 void AdminWindow::deleteStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要删除的电站");return;}if(QMessageBox::question(this,"确认删除","确定删除电站“"+ui->stationsTable->item(r,1)->text()+"”吗？\n存在关联电桩时服务器会拒绝删除。")!=QMessageBox::Yes)return;send("admin.station.delete",{{"stationId",ui->stationsTable->item(r,0)->text().toLongLong()}});}
-void AdminWindow::addCharger(){if(ui->chargerStationCombo->currentIndex()<0){QMessageBox::information(this,"提示","请先新增或选择所属电站");return;}send("admin.charger.add",{{"stationId",ui->chargerStationCombo->currentData().toLongLong()},{"code",ui->chargerCodeEdit->text()},{"chargerType",ui->chargerTypeCombo->currentText()},{"power",ui->chargerPowerSpin->value()},{"status",ui->chargerStatusCombo->currentText()}});}
+void AdminWindow::addCharger(){
+    if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录管理员账号");return;}
+    if(!m_socket.isEncrypted()){QMessageBox::information(this,"提示","服务器未连接，请先建立 TLS 连接");return;}
+    if(ui->chargerStationCombo->currentIndex()<0){QMessageBox::information(this,"提示","请先新增或选择所属电站");return;}
+    const QString code=ui->chargerCodeEdit->text().trimmed().toUpper();
+    if(!QRegularExpression("^[A-Z0-9_-]{3,32}$").match(code).hasMatch()){QMessageBox::warning(this,"输入错误","请输入 3～32 位设备编号，只能包含字母、数字、下划线和连字符");return;}
+    for(int row=0;row<ui->chargersTable->rowCount();++row)if(ui->chargersTable->item(row,1)&&ui->chargersTable->item(row,1)->text().compare(code,Qt::CaseInsensitive)==0){QMessageBox::warning(this,"设备编号重复","“"+code+"”已经存在。请选择空白处并输入一个新的设备编号，例如 DL-NEW-001。");return;}
+    ui->chargerCodeEdit->setText(code);statusBar()->showMessage("正在新增电桩 "+code+"…",5000);
+    send("admin.charger.add",{{"stationId",ui->chargerStationCombo->currentData().toLongLong()},{"code",code},{"chargerType",ui->chargerTypeCombo->currentText()},{"power",ui->chargerPowerSpin->value()},{"status",ui->chargerStatusCombo->currentText()}});
+}
 void AdminWindow::updateCharger(){const int r=ui->chargersTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电桩");return;}send("admin.charger.update",{{"chargerId",ui->chargersTable->item(r,0)->text().toLongLong()},{"stationId",ui->chargerStationCombo->currentData().toLongLong()},{"code",ui->chargerCodeEdit->text()},{"chargerType",ui->chargerTypeCombo->currentText()},{"power",ui->chargerPowerSpin->value()},{"status",ui->chargerStatusCombo->currentText()}});}
 void AdminWindow::deleteCharger(){const int r=ui->chargersTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要删除的电桩");return;}if(QMessageBox::question(this,"确认删除","确定删除电桩“"+ui->chargersTable->item(r,1)->text()+"”吗？\n已有业务记录的设备应改为 OFFLINE，不允许删除。")!=QMessageBox::Yes)return;send("admin.charger.delete",{{"chargerId",ui->chargersTable->item(r,0)->text().toLongLong()}});}
 void AdminWindow::addAdmin(){if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录现有管理员账号");return;}bool ok=false;const QString username=QInputDialog::getText(this,"新增管理员","新管理员账号（4～32 位）：",QLineEdit::Normal,QString(),&ok).trimmed();if(!ok)return;const QString password=QInputDialog::getText(this,"新增管理员","设置密码（至少 6 位）：",QLineEdit::Password,QString(),&ok);if(!ok)return;const QString confirm=QInputDialog::getText(this,"新增管理员","再次输入密码：",QLineEdit::Password,QString(),&ok);if(!ok)return;if(username.isEmpty()||password.size()<6||password!=confirm){QMessageBox::warning(this,"输入错误",password!=confirm?"两次密码输入不一致":"账号或密码格式错误");return;}send("admin.account.add",{{"username",username},{"password",password},{"confirmPassword",confirm}});}
