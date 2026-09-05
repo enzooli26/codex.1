@@ -247,7 +247,17 @@ QJsonObject Database::startCharge(qint64 userId, qint64 chargerId, const QString
     if (target<=0 || !QStringList({"AMOUNT","ENERGY","TIME"}).contains(mode)) { if(error)*error="充电目标无效"; return {}; }
     if(!begin(error))return{};
     QSqlQuery user(m_db);user.prepare("SELECT balance,status FROM users WHERE id=?");user.addBindValue(userId);
-    if(!user.exec()||!user.next()||user.value(1).toString()!="NORMAL"||user.value(0).toDouble()<=0){rollback();if(error)*error="用户状态异常或余额不足";return{};}
+    if(!user.exec()||!user.next()||user.value(1).toString()!="NORMAL"){rollback();if(error)*error="用户状态异常";return{};}
+    const double balance=user.value(0).toDouble();
+    double minRequired=0;
+    if(mode=="AMOUNT"){
+        minRequired=target;
+    }else if(mode=="ENERGY"){
+        QSqlQuery price(m_db);price.prepare("SELECT s.base_price FROM chargers c JOIN stations s ON s.id=c.station_id WHERE c.id=?");price.addBindValue(chargerId);
+        if(!price.exec()||!price.next()){rollback();if(error)*error="无法获取电价";return{};}
+        minRequired=target*price.value(0).toDouble();
+    }
+    if(balance<=0||balance<minRequired){rollback();if(error)*error=QString("余额不足，当前余额 ¥%1，需要 ¥%2").arg(balance,0,'f',2).arg(minRequired,0,'f',2);return{};}
     QSqlQuery busy(m_db);busy.prepare("SELECT 1 FROM charge_orders WHERE user_id=? AND status IN ('CHARGING','PENDING_PAYMENT')");busy.addBindValue(userId);
     if(!busy.exec()||busy.next()){rollback();if(error)*error="存在未完成订单";return{};}
     QSqlQuery lock(m_db);lock.prepare("UPDATE chargers SET status='CHARGING' WHERE id=? AND status IN ('IDLE','RESERVED')");lock.addBindValue(chargerId);
@@ -266,7 +276,8 @@ QJsonObject Database::stopCharge(qint64 userId, qint64 orderId, QString *error)
     if(!find.exec()||!find.next()){rollback();if(error)*error="活动订单不存在";return{};}
     const qint64 chargerId=find.value(0).toLongLong(); const double energy=find.value(1).toDouble();
     const int elapsed=qMax(1,static_cast<int>(QDateTime::fromString(find.value(2).toString(),Qt::ISODate).secsTo(QDateTime::currentDateTimeUtc())));
-    QSqlQuery price(m_db);price.prepare("SELECT s.base_price FROM chargers c JOIN stations s ON s.id=c.station_id WHERE c.id=?");price.addBindValue(chargerId);price.exec();price.next();
+    QSqlQuery price(m_db);price.prepare("SELECT s.base_price FROM chargers c JOIN stations s ON s.id=c.station_id WHERE c.id=?");price.addBindValue(chargerId);
+    if(!price.exec()||!price.next()){rollback();if(error)*error="无法获取电价";return{};}
     const double amount=qRound64(energy*price.value(0).toDouble()*100.0)/100.0;
     QSqlQuery update(m_db);update.prepare("UPDATE charge_orders SET status='COMPLETED',end_at=?,amount=?,duration=MAX(duration,?) WHERE id=?");update.addBindValue(now());update.addBindValue(amount);update.addBindValue(elapsed);update.addBindValue(orderId);
     if(!update.exec()){rollback();if(error)*error=update.lastError().text();return{};}
@@ -392,4 +403,41 @@ int Database::expireReservations(QString *error)
         if(!release.exec()){rollback();if(error)*error=release.lastError().text();return -1;}
     }
     if(!commit(error)){rollback();return -1;}return ids.size();
+}
+
+int Database::markAbnormalOrders(QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE chargers SET status='IDLE' WHERE status IN ('CHARGING','RESERVED')");
+    if(!q.exec()){if(error)*error=q.lastError().text();return -1;}
+    QSqlQuery o(m_db);
+    o.prepare("UPDATE charge_orders SET status='ABNORMAL',end_at=? WHERE status='CHARGING'");
+    o.addBindValue(now());
+    if(!o.exec()){if(error)*error=o.lastError().text();return -1;}
+    return o.numRowsAffected();
+}
+
+QJsonArray Database::autoCompleteDisconnectedOrders(qint64 userId, QString *error)
+{
+    if(!begin(error))return{};
+    QSqlQuery find(m_db);
+    find.prepare("SELECT id,charger_id FROM charge_orders WHERE user_id=? AND status='CHARGING'");
+    find.addBindValue(userId);
+    if(!find.exec()){rollback();if(error)*error=find.lastError().text();return{};}
+    QJsonArray completed;
+    while(find.next()){
+        const qint64 orderId=find.value(0).toLongLong();
+        const qint64 chargerId=find.value(1).toLongLong();
+        QSqlQuery upd(m_db);
+        upd.prepare("UPDATE charge_orders SET status='ABNORMAL',end_at=? WHERE id=?");
+        upd.addBindValue(now()); upd.addBindValue(orderId);
+        if(!upd.exec()){rollback();if(error)*error=upd.lastError().text();return{};}
+        QSqlQuery release(m_db);
+        release.prepare("UPDATE chargers SET status='IDLE' WHERE id=? AND status='CHARGING'");
+        release.addBindValue(chargerId);
+        release.exec();
+        completed.append(QJsonObject{{"orderId",orderId}});
+    }
+    if(!commit(error)){rollback();return{};}
+    return completed;
 }

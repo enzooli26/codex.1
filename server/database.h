@@ -34,6 +34,8 @@ public:
     bool setUserStatus(qint64 userId, const QString &status, QString *error);
     bool restartCharger(qint64 chargerId, QString *error);
     int expireReservations(QString *error);
+    int markAbnormalOrders(QString *error);
+    QJsonArray autoCompleteDisconnectedOrders(qint64 userId, QString *error);
 
 private:
     QSqlDatabase m_db;

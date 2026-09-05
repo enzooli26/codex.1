@@ -42,5 +42,6 @@ private:
     TlsTcpServer m_server;
     Database m_database;
     QHash<QSslSocket *, QByteArray> m_buffers;
+    QHash<qint64, QSslSocket *> m_userSockets;
     QTimer m_expiryTimer;
 };

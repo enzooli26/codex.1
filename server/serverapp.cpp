@@ -38,6 +38,9 @@ bool ServerApp::start(quint16 port, const QString &databasePath,
 {
     QString error;
     if (!m_database.open(databasePath, &error)) { qCritical() << error; return false; }
+    QString resetError;const int resetCount=m_database.markAbnormalOrders(&resetError);
+    if(resetCount>0)qInfo()<<"marked"<<resetCount<<"abnormal orders on startup";
+    if(!resetError.isEmpty())qWarning()<<resetError;
     QFile certificateFile(certificatePath), keyFile(privateKeyPath);
     if (!certificateFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
         qCritical() << "Cannot open TLS certificate/private key" << certificatePath << privateKeyPath;
@@ -75,7 +78,15 @@ void ServerApp::readClient()
 
 void ServerApp::removeClient()
 {
-    auto *socket=qobject_cast<QSslSocket *>(sender()); if(!socket)return;m_buffers.remove(socket);socket->deleteLater();
+    auto *socket=qobject_cast<QSslSocket *>(sender()); if(!socket)return;
+    if(socket->property("role").toString()=="user"){
+        const qint64 userId=socket->property("userId").toLongLong();
+        QString error;QJsonArray completed=m_database.autoCompleteDisconnectedOrders(userId,&error);
+        if(!error.isEmpty())qWarning()<<error;
+        else if(!completed.isEmpty())qInfo()<<"auto-completed orders for user"<<userId;
+        m_userSockets.remove(userId);
+    }
+    m_buffers.remove(socket);socket->deleteLater();
 }
 
 void ServerApp::send(QSslSocket *socket,const QJsonObject &message){socket->write(Protocol::encode(message));}
@@ -86,11 +97,11 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
     if(type=="auth.user"){
         const QString phone=p.value("phone").toString().trimmed(),password=p.value("password").toString();
         if(!QRegularExpression("^1[3-9][0-9]{9}$").match(phone).hasMatch()||password.isEmpty()){send(socket,Protocol::response(message,400,"手机号或密码格式错误"));return;}
-        data=m_database.loginUser(phone,password,&error); if(!data.isEmpty()){socket->setProperty("userId",data.value("id").toVariant());socket->setProperty("role","user");}
+        data=m_database.loginUser(phone,password,&error); if(!data.isEmpty()){socket->setProperty("userId",data.value("id").toVariant());socket->setProperty("role","user");m_userSockets.insert(data.value("id").toVariant().toLongLong(),socket);}
     }else if(type=="auth.user.register"){
         const QString phone=p.value("phone").toString().trimmed(),password=p.value("password").toString(),confirm=p.value("confirmPassword").toString();
         if(password!=confirm)error="两次密码输入不一致";else data=m_database.registerUser(phone,password,&error);
-        if(!data.isEmpty()){socket->setProperty("userId",data.value("id").toVariant());socket->setProperty("role","user");}
+        if(!data.isEmpty()){socket->setProperty("userId",data.value("id").toVariant());socket->setProperty("role","user");m_userSockets.insert(data.value("id").toVariant().toLongLong(),socket);}
     }else if(type=="wallet.recharge"){
         if(socket->property("role").toString()!="user")error="请先登录";else data=m_database.recharge(socket->property("userId").toLongLong(),p.value("amount").toDouble(),p.value("password").toString(),&error);
     }else if(type=="user.orders"){
