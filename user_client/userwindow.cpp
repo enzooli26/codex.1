@@ -17,6 +17,8 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     ui->stationTable->horizontalHeader()->setSectionResizeMode(3,QHeaderView::ResizeToContents);
     ui->stationTable->verticalHeader()->setVisible(false);
     ui->stationTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui->stationTable->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    ui->stationTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     connect(ui->connectButton,&QPushButton::clicked,this,&UserWindow::connectServer);
     connect(ui->loginButton,&QPushButton::clicked,this,&UserWindow::login);
     connect(ui->registerButton,&QPushButton::clicked,this,&UserWindow::registerUser);
