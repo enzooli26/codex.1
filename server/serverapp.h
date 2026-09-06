@@ -32,7 +32,7 @@ public:
     explicit ServerApp(QObject *parent = nullptr);
     bool start(quint16 port, const QString &databasePath,
                const QString &certificatePath, const QString &privateKeyPath,
-               const QString &deviceToken);
+               const QString &deviceToken, const QString &mapApiKey = QString());
 
 private slots:
     void acceptConnections();
@@ -61,5 +61,6 @@ private:
     QHash<qint64,QSslSocket *> m_userSockets;
     QHash<QString,PendingCommand> m_pendingCommands;
     QString m_deviceToken;
+    QString m_mapApiKey;
     QTimer m_expiryTimer;
 };

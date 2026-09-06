@@ -36,7 +36,7 @@ ServerApp::ServerApp(QObject *parent) : QObject(parent)
 
 bool ServerApp::start(quint16 port, const QString &databasePath,
                       const QString &certificatePath, const QString &privateKeyPath,
-                      const QString &deviceToken)
+                      const QString &deviceToken, const QString &mapApiKey)
 {
     QString error;
     if (!m_database.open(databasePath, &error)) { qCritical() << error; return false; }
@@ -53,6 +53,7 @@ bool ServerApp::start(quint16 port, const QString &databasePath,
     }
     m_server.setCredentials(certificate, key);
     m_deviceToken=deviceToken;
+    m_mapApiKey=mapApiKey;
     if (!m_server.listen(QHostAddress::Any, port)) { qCritical() << m_server.errorString(); return false; }
     m_expiryTimer.start();
     return true;
@@ -239,6 +240,8 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
         const QString code=p.value("chargerCode").toString();
         if(socket->property("role").toString()!="device"||m_chargerSockets.value(code)!=socket)error="设备未注册或无权上报该充电桩";
         else if(m_database.insertTelemetry(code,p.value("voltage").toDouble(),p.value("current").toDouble(),p.value("power").toDouble(),p.value("soc").toDouble(),&error))data={{"accepted",true}};
+    }else if(type=="map.config"){
+        data={{"apiKey",m_mapApiKey},{"provider","tencent"}};
     }else if(type=="admin.summary"){
         if(socket->property("role").toString()!="admin")error="无管理员权限";else data=m_database.adminSummary(&error);
     }else if(type.startsWith("admin.")&&socket->property("role").toString()!="admin"){

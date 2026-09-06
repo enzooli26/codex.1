@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#eef3f9;font-family:"Microsoft YaHei",sans-serif}
+#container{width:100%;height:100%}
+#status{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,0.95);padding:6px 14px;border-radius:20px;font-size:12px;color:#4a5a7a;box-shadow:0 2px 8px rgba(0,0,0,0.12);z-index:10;display:none}
+</style>
+<script>
+// qwebchannel.js inlined (Qt 5.15 QtWebChannel)
+var QWebChannelMessageTypes = {
+    signal: 1,
+    propertyUpdate: 2,
+    init: 3,
+    idle: 4,
+    debug: 5,
+    invokeMethod: 6,
+    connectToSignal: 7,
+    disconnectFromSignal: 8,
+    setProperty: 9,
+    response: 10,
+};
+
+var QWebChannel = function(transport, initCallback, converters)
+{
+    if (typeof transport !== "object" || typeof transport.send !== "function") {
+        console.error("The QWebChannel expects a transport object with a send function and onmessage callback property." +
+                      " Given is: transport: " + typeof(transport) + ", transport.send: " + typeof(transport.send));
+        return;
+    }
+
+    var channel = this;
+    this.transport = transport;
+
+    var converterRegistry =
+    {
+        Date : function(response) {
+            if (typeof response === "string"
+                && response.match(
+                        /^-?\d+-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d*)?([-+\u2212](\d{2}):(\d{2})|Z)?$/)) {
+                var date = new Date(response);
+                if (!isNaN(date))
+                    return date;
+            }
+            return undefined;
+        }
+    };
+
+    this.usedConverters = [];
+
+    this.addConverter = function(converter)
+    {
+        if (typeof converter === "string") {
+            if (converterRegistry.hasOwnProperty(converter))
+                this.usedConverters.push(converterRegistry[converter]);
+            else
+                console.error("Converter '" + converter + "' not found");
+        } else if (typeof converter === "function") {
+            this.usedConverters.push(converter);
+        } else {
+            console.error("Invalid converter object type " + typeof converter);
+        }
+    }
+
+    if (Array.isArray(converters)) {
+        for (const converter of converters)
+            this.addConverter(converter);
+    } else if (converters !== undefined) {
+        this.addConverter(converters);
+    }
+
+    this.send = function(data)
+    {
+        if (typeof(data) !== "string") {
+            data = JSON.stringify(data);
+        }
+        channel.transport.send(data);
+    }
+
+    this.transport.onmessage = function(message)
+    {
+        var data = message.data;
+        if (typeof data === "string") {
+            data = JSON.parse(data);
+        }
+        switch (data.type) {
+            case QWebChannelMessageTypes.signal:
+                channel.handleSignal(data);
+                break;
+            case QWebChannelMessageTypes.response:
+                channel.handleResponse(data);
+                break;
+            case QWebChannelMessageTypes.propertyUpdate:
+                channel.handlePropertyUpdate(data);
+                break;
+            default:
+                console.error("invalid message received:", message.data);
+                break;
+        }
+    }
+
+    this.execCallbacks = {};
+    this.execId = 0;
+    this.exec = function(data, callback)
+    {
+        if (!callback) {
+            channel.send(data);
+            return;
+        }
+        if (channel.execId === Number.MAX_VALUE) {
+            channel.execId = Number.MIN_VALUE;
+        }
+        if (data.hasOwnProperty("id")) {
+            console.error("Cannot exec message with property id: " + JSON.stringify(data));
+            return;
+        }
+        data.id = channel.execId++;
+        channel.execCallbacks[data.id] = callback;
+        channel.send(data);
+    };
+
+    this.objects = {};
+
+    this.handleSignal = function(message)
+    {
+        var object = channel.objects[message.object];
+        if (object) {
+            object.signalEmitted(message.signal, message.args);
+        } else {
+            console.warn("Unhandled signal: " + message.object + "::" + message.signal);
+        }
+    }
+
+    this.handleResponse = function(message)
+    {
+        if (!message.hasOwnProperty("id")) {
+            console.error("Invalid response message received: ", JSON.stringify(message));
+            return;
+        }
+        channel.execCallbacks[message.id](message.data);
+        delete channel.execCallbacks[message.id];
+    }
+
+    this.handlePropertyUpdate = function(message)
+    {
+        message.data.forEach(function(data) {
+            var object = channel.objects[data.object];
+            if (object) {
+                object.propertyUpdate(data.signals, data.properties);
+            } else {
+                console.warn("Unhandled property update: " + data.object + "::" + data.signal);
+            }
+        });
+        channel.exec({type: QWebChannelMessageTypes.idle});
+    }
+
+    this.debug = function(message)
+    {
+        channel.send({type: QWebChannelMessageTypes.debug, data: message});
+    };
+
+    channel.exec({type: QWebChannelMessageTypes.init}, function(data) {
+        for (var objectName of Object.keys(data)) {
+            new QObject(objectName, data[objectName], channel);
+        }
+
+        for (var objectName of Object.keys(channel.objects)) {
+            channel.objects[objectName].unwrapProperties();
+        }
+
+        if (initCallback) {
+            initCallback(channel);
+        }
+        channel.exec({type: QWebChannelMessageTypes.idle});
+    });
+};
+
+function QObject(name, data, webChannel)
+{
+    this.__id__ = name;
+    webChannel.objects[name] = this;
+
+    this.__objectSignals__ = {};
+    this.__propertyCache__ = {};
+
+    var object = this;
+
+    this.unwrapQObject = function(response)
+    {
+        for (const converter of webChannel.usedConverters) {
+            var result = converter(response);
+            if (result !== undefined)
+                return result;
+        }
+
+        if (response instanceof Array) {
+            return response.map(function(qobj) { return object.unwrapQObject(qobj); })
+        }
+        if (!(response instanceof Object))
+            return response;
+
+        if (!response["__QObject*__"] || response.id === undefined) {
+            var jObj = {};
+            for (const propName of Object.keys(response)) {
+                jObj[propName] = object.unwrapQObject(response[propName]);
+            }
+            return jObj;
+        }
+
+        var objectId = response.id;
+        if (webChannel.objects[objectId])
+            return webChannel.objects[objectId];
+
+        if (!response.data) {
+            console.error("Cannot unwrap unknown QObject " + objectId + " without data.");
+            return;
+        }
+
+        var qObject = new QObject( objectId, response.data, webChannel );
+        qObject.destroyed.connect(function() {
+            if (webChannel.objects[objectId] === qObject) {
+                delete webChannel.objects[objectId];
+                Object.keys(qObject).forEach(function(name) { delete qObject[name]; });
+            }
+        });
+        qObject.unwrapProperties();
+        return qObject;
+    }
+
+    this.unwrapProperties = function()
+    {
+        for (var propertyIdx of Object.keys(object.__propertyCache__)) {
+            object.__propertyCache__[propertyIdx] = object.unwrapQObject(object.__propertyCache__[propertyIdx]);
+        }
+    }
+
+    function addSignal(signalData, isPropertyNotifySignal)
+    {
+        var signalName = signalData[0];
+        var signalIndex = signalData[1];
+        object[signalName] = {
+            connect: function(callback) {
+                if (typeof(callback) !== "function") {
+                    console.error("Bad callback given to connect to signal " + signalName);
+                    return;
+                }
+
+                object.__objectSignals__[signalIndex] = object.__objectSignals__[signalIndex] || [];
+                object.__objectSignals__[signalIndex].push(callback);
+
+                if (isPropertyNotifySignal)
+                    return;
+
+                if (signalName === "destroyed" || signalName === "destroyed()" || signalName === "destroyed(QObject*)")
+                    return;
+
+                if (object.__objectSignals__[signalIndex].length == 1) {
+                    webChannel.exec({
+                        type: QWebChannelMessageTypes.connectToSignal,
+                        object: object.__id__,
+                        signal: signalIndex
+                    });
+                }
+            },
+            disconnect: function(callback) {
+                if (typeof(callback) !== "function") {
+                    console.error("Bad callback given to disconnect from signal " + signalName);
+                    return;
+                }
+                object.__objectSignals__[signalIndex] = (object.__objectSignals__[signalIndex] || []).filter(function(c) {
+                  return c != callback;
+                });
+                if (!isPropertyNotifySignal && object.__objectSignals__[signalIndex].length === 0) {
+                    webChannel.exec({
+                        type: QWebChannelMessageTypes.disconnectFromSignal,
+                        object: object.__id__,
+                        signal: signalIndex
+                    });
+                }
+            }
+        };
+    }
+
+    function invokeSignalCallbacks(signalName, signalArgs)
+    {
+        var connections = object.__objectSignals__[signalName];
+        if (connections) {
+            connections.forEach(function(callback) {
+                callback.apply(callback, signalArgs);
+            });
+        }
+    }
+
+    this.propertyUpdate = function(signals, propertyMap)
+    {
+        for (var propertyIndex of Object.keys(propertyMap)) {
+            var propertyValue = propertyMap[propertyIndex];
+            object.__propertyCache__[propertyIndex] = this.unwrapQObject(propertyValue);
+        }
+
+        for (var signalName of Object.keys(signals)) {
+            invokeSignalCallbacks(signalName, signals[signalName]);
+        }
+    }
+
+    this.signalEmitted = function(signalName, signalArgs)
+    {
+        invokeSignalCallbacks(signalName, this.unwrapQObject(signalArgs));
+    }
+
+    function addMethod(methodData)
+    {
+        var methodName = methodData[0];
+        var methodIdx = methodData[1];
+
+        var invokedMethod = methodName[methodName.length - 1] === ')' ? methodIdx : methodName
+
+        object[methodName] = function() {
+            var args = [];
+            var callback;
+            var errCallback;
+            for (var i = 0; i < arguments.length; ++i) {
+                var argument = arguments[i];
+                if (typeof argument === "function")
+                    callback = argument;
+                else
+                    args.push(argument);
+            }
+
+            var result;
+            if (!callback && (typeof(Promise) === 'function')) {
+              result = new Promise(function(resolve, reject) {
+                callback = resolve;
+                errCallback = reject;
+              });
+            }
+
+            webChannel.exec({
+                "type": QWebChannelMessageTypes.invokeMethod,
+                "object": object.__id__,
+                "method": invokedMethod,
+                "args": args
+            }, function(response) {
+                if (response !== undefined) {
+                    var result = object.unwrapQObject(response);
+                    if (callback) {
+                        (callback)(result);
+                    }
+                } else if (errCallback) {
+                  (errCallback)();
+                }
+            });
+
+            return result;
+        };
+    }
+
+    function bindGetterSetter(propertyInfo)
+    {
+        var propertyIndex = propertyInfo[0];
+        var propertyName = propertyInfo[1];
+        var notifySignalData = propertyInfo[2];
+        object.__propertyCache__[propertyIndex] = propertyInfo[3];
+
+        if (notifySignalData) {
+            if (notifySignalData[0] === 1) {
+                notifySignalData[0] = propertyName + "Changed";
+            }
+            addSignal(notifySignalData, true);
+        }
+
+        Object.defineProperty(object, propertyName, {
+            configurable: true,
+            get: function () {
+                var propertyValue = object.__propertyCache__[propertyIndex];
+                if (propertyValue === undefined) {
+                    console.warn("Undefined value in property cache for property \"" + propertyName + "\" in object " + object.__id__);
+                }
+                return propertyValue;
+            },
+            set: function(value) {
+                if (value === undefined) {
+                    console.warn("Property setter for " + propertyName + " called with undefined value!");
+                    return;
+                }
+                object.__propertyCache__[propertyIndex] = value;
+                var valueToSend = value;
+                webChannel.exec({
+                    "type": QWebChannelMessageTypes.setProperty,
+                    "object": object.__id__,
+                    "property": propertyIndex,
+                    "value": valueToSend
+                });
+            }
+        });
+    }
+
+    data.methods.forEach(addMethod);
+    data.properties.forEach(bindGetterSetter);
+    data.signals.forEach(function(signal) { addSignal(signal, false); });
+
+    Object.assign(object, data.enums);
+}
+
+QObject.prototype.toJSON = function() {
+    if (this.__id__ === undefined) return {};
+    return {
+        id: this.__id__,
+        "__QObject*__": true
+    };
+}
+</script>
+</head>
+<body>
+<div id="container"></div>
+<div id="status"></div>
+<script>
+window.onerror=function(msg,url,line,col,err){ showStatus('JS错误: '+msg, 4000); };
+let map=null, markerLayer=null, polylineLayer=null, bridge=null;
+let tencentKey="";
+let mapReady=false;
+let pendingMarkers=[], pendingRoute=null, pendingCenter=null;
+
+function showStatus(msg, ms){
+    const el=document.getElementById('status');
+    el.textContent=msg; el.style.display='block';
+    console.log('[MapStatus]', msg);
+    if(ms && msg.indexOf('失败')===-1 && msg.indexOf('错误')===-1){
+        setTimeout(()=>el.style.display='none', ms);
+    }
+}
+
+let mapRetryTimer=null;
+function scheduleMapRetry(){
+    if(mapRetryTimer || map) return;
+    mapRetryTimer=setTimeout(function(){
+        mapRetryTimer=null;
+        if(!map) ensureMap();
+    },200);
+}
+
+function ensureMap(){
+    console.log('[MapStatus] ensureMap called, TMap defined:', typeof TMap, 'tencentKey:', tencentKey ? 'yes' : 'no');
+    if(map || !tencentKey || typeof TMap==='undefined') return false;
+    const container = document.getElementById('container');
+    if(!container || container.offsetWidth===0 || container.offsetHeight===0){
+        console.log('[MapStatus] container zero-size, scheduling retry');
+        scheduleMapRetry();
+        return false;
+    }
+    try{
+        console.log('[MapStatus] container:', container, 'size:', container.offsetWidth, 'x', container.offsetHeight);
+        console.log('[MapStatus] TMap.Map:', typeof TMap.Map, 'TMap.LatLng:', typeof TMap.LatLng);
+        const center = new TMap.LatLng(39.9042,116.4074);
+        map = new TMap.Map(container, {
+            center: center,
+            zoom: 12,
+            viewMode: '2D',
+            pitch: 0
+        });
+        markerLayer = new TMap.MultiMarker({
+            map: map,
+            styles: {
+                station: new TMap.MarkerStyle({ width:26, height:36, anchor:{x:13,y:36}, src:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="26" height="36"><path d="M13 0C5.8 0 0 5.8 0 13c0 9.7 13 23 13 23s13-13.3 13-23C26 5.8 20.2 0 13 0z" fill="#416fe3"/><circle cx="13" cy="12" r="5" fill="#fff"/></svg>') }),
+                search: new TMap.MarkerStyle({ width:26, height:36, anchor:{x:13,y:36}, src:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="26" height="36"><path d="M13 0C5.8 0 0 5.8 0 13c0 9.7 13 23 13 23s13-13.3 13-23C26 5.8 20.2 0 13 0z" fill="#e74c3c"/><circle cx="13" cy="12" r="5" fill="#fff"/></svg>') }),
+                origin: new TMap.MarkerStyle({ width:22, height:22, anchor:{x:11,y:11}, src:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="10" fill="#2ca777" stroke="#fff" stroke-width="2"/></svg>') }),
+                dest: new TMap.MarkerStyle({ width:22, height:22, anchor:{x:11,y:22}, src:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><path d="M11 0C5 0 0 5 0 11c0 8 11 11 11 11s11-3 11-11C22 5 17 0 11 0z" fill="#d85b6a"/><circle cx="11" cy="10" r="4" fill="#fff"/></svg>') })
+            },
+            geometries: []
+        });
+        polylineLayer = new TMap.MultiPolyline({
+            map: map,
+            styles: { route: new TMap.PolylineStyle({ color:'#416fe3', width:6, borderWidth:2, borderColor:'#ffffff', lineCap:'round' }) },
+            geometries: []
+        });
+        markerLayer.on('click', function(evt){
+            const g=evt.geometry;
+            if(g && g.properties && bridge){
+                bridge.onMarkerClicked(String(g.id||''), g.position.lat, g.position.lng, g.properties.title||'');
+            }
+        });
+        mapReady=true;
+        window.addEventListener('resize', function(){ if(map) map.setCenter(map.getCenter()); });
+        if(pendingMarkers.length) { addMarkers(pendingMarkers); pendingMarkers=[]; }
+        if(pendingRoute) { drawRoute(pendingRoute.fromLat, pendingRoute.fromLng, pendingRoute.toLat, pendingRoute.toLng, pendingRoute.polyline); pendingRoute=null; }
+        if(pendingCenter){ map.setCenter(new TMap.LatLng(pendingCenter.lat, pendingCenter.lng)); if(pendingCenter.zoom) map.setZoom(pendingCenter.zoom); pendingCenter=null; }
+        if(typeof tryNotifyReady==='function') tryNotifyReady();
+        else if(bridge) try{ bridge.jsReady(); }catch(e){}
+        else if(window._onMapReadyBridge) window._onMapReadyBridge();
+        showStatus('地图就绪', 1500);
+        return true;
+    }catch(e){
+        console.error('[MapStatus] ensureMap error:', e);
+        showStatus('地图初始化失败: '+(e.message||e||'unknown'), 3000);
+        return false;
+    }
+}
+
+function loadTencentSDK(key){
+    if(!key){ showStatus('等待地图 Key...'); return; }
+    if(tencentKey===key && map) return;
+    tencentKey=key;
+    if(typeof TMap!=='undefined'){ ensureMap(); return; }
+    showStatus('正在加载腾讯地图...');
+    const script=document.createElement('script');
+    script.src='https://map.qq.com/api/gljs?v=1.exp&key='+encodeURIComponent(key);
+    script.onload=()=>{ showStatus('SDK 已加载', 1000); ensureMap(); };
+    script.onerror=()=>{ showStatus('SDK 加载失败，请检查 Key 与网络', 4000); };
+    document.head.appendChild(script);
+}
+
+function setApiKey(key){ loadTencentSDK(key); }
+
+function wakeMap(){
+    console.log('[MapStatus] wakeMap called');
+    if(map) return true;
+    if(!tencentKey){ showStatus('等待地图 Key...', 2000); return false; }
+    if(typeof TMap==='undefined'){ loadTencentSDK(tencentKey); return false; }
+    return ensureMap();
+}
+
+function setCenter(lat,lng,zoom){
+    if(!map){ pendingCenter={lat,lng,zoom:zoom||0}; return; }
+    map.setCenter(new TMap.LatLng(lat,lng));
+    if(zoom) map.setZoom(zoom);
+}
+
+function clearMarkers(){ if(markerLayer) markerLayer.setGeometries([]); }
+function clearRoute(){ if(polylineLayer) polylineLayer.setGeometries([]); }
+function clearAll(){ clearMarkers(); clearRoute(); }
+
+function addMarkers(list){
+    if(!map){ pendingMarkers=list; return; }
+    const geos=list.map((o,i)=>({
+        id: o.id||('m_'+i),
+        styleId: o.styleId||'station',
+        position: new TMap.LatLng(o.lat, o.lng),
+        properties: { title: o.title||'', address: o.address||'' }
+    }));
+    markerLayer.setGeometries(geos);
+    if(geos.length===1){ map.setCenter(geos[0].position); map.setZoom(15); }
+    else if(geos.length>1){
+        const bounds=new TMap.LatLngBounds();
+        geos.forEach(g=>bounds.extend(g.position));
+        map.fitBounds(bounds, {padding:40});
+    }
+}
+
+function setStationMarkers(list){ addMarkers(list.map(o=>({id:o.id,lat:o.lat,lng:o.lng,title:o.title,address:o.address,styleId:'station'}))); }
+
+function decodePolyline(coors){
+    if(!coors || coors.length<4) return [];
+    const result=[];
+    const kr=1e5;
+    let lat=Number(coors[0]);
+    let lng=Number(coors[1]);
+    result.push(new TMap.LatLng(lat, lng));
+    for(let i=2;i<coors.length-1;i+=2){
+        lat+=Number(coors[i])/kr;
+        lng+=Number(coors[i+1])/kr;
+        result.push(new TMap.LatLng(lat, lng));
+    }
+    return result;
+}
+
+function drawRoute(fromLat, fromLng, toLat, toLng, polyline){
+    if(!map){ pendingRoute={fromLat,fromLng,toLat,toLng,polyline}; return; }
+    const from=new TMap.LatLng(fromLat, fromLng);
+    const to=new TMap.LatLng(toLat, toLng);
+    let paths=[];
+    if(polyline && polyline.length>0){
+        if(typeof polyline[0]==='number'){
+            paths=decodePolyline(polyline.slice());
+        } else if(Array.isArray(polyline[0])){
+            paths=polyline.map(p=>new TMap.LatLng(p[0], p[1]));
+        }
+    }
+    if(paths.length<2) paths=[from, to];
+    polylineLayer.setGeometries([{ id:'route', styleId:'route', paths: paths }]);
+    const allMarkers=[
+        { id:'origin', styleId:'origin', position: from, properties:{title:'起点'} },
+        { id:'dest', styleId:'dest', position: to, properties:{title:'终点'} }
+    ];
+    const existing=markerLayer.getGeometries().filter(g=> g.properties && (g.styleId==='station' || g.styleId==='search'));
+    markerLayer.setGeometries([...existing, ...allMarkers]);
+    const bounds=new TMap.LatLngBounds();
+    paths.forEach(p=>bounds.extend(p));
+    bounds.extend(from); bounds.extend(to);
+    map.fitBounds(bounds, {padding:60});
+}
+
+function drawRouteSimple(fromLat, fromLng, toLat, toLng){
+    drawRoute(fromLat, fromLng, toLat, toLng, null);
+}
+
+// QWebChannel 双向互补：通道就绪时若地图已就绪则补发 jsReady；map 就绪时（ensureMap）也会补发
+let channelReady=false;
+function tryNotifyReady(){
+    if(mapReady && channelReady && bridge){
+        try{ bridge.jsReady(); showStatus('已通知宿主', 800);}catch(e){ showStatus('bridge.jsReady 失败: '+e.message,3000); }
+    }
+}
+try{
+    if(typeof QWebChannel==='undefined') throw new Error('QWebChannel 未加载，检查 qrc:///qwebchannel.js');
+    if(typeof qt==='undefined' || !qt.webChannelTransport) throw new Error('qt.webChannelTransport 未注入，检查 page()->setWebChannel 时序');
+    new QWebChannel(qt.webChannelTransport, function(channel){
+        bridge=channel.objects.bridge;
+        channelReady=true;
+        showStatus('通道就绪', 1000);
+        tryNotifyReady();
+        setTimeout(tryNotifyReady, 300);
+    });
+}catch(e){
+    showStatus('通道初始化失败: '+e.message, 5000);
+}
+window._onMapReadyBridge = function(){ tryNotifyReady(); };
+</script>
+</body>
+</html>

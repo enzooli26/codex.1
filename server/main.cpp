@@ -41,10 +41,11 @@ int main(int argc, char *argv[])
     const QString certificatePath = resolve(settings.value("tls/certificate", "server-cert.pem").toString());
     const QString privateKeyPath = resolve(settings.value("tls/private_key", "server-key.pem").toString());
     const QString deviceToken = settings.value("device/token", "course-device-token").toString();
+    const QString mapApiKey = settings.value("map/api_key", "").toString().trimmed();
     QDir().mkpath(QFileInfo(dbPath).absolutePath());
 
     ServerApp server;
-    if (!server.start(port, dbPath, certificatePath, privateKeyPath, deviceToken)) return 1;
+    if (!server.start(port, dbPath, certificatePath, privateKeyPath, deviceToken, mapApiKey)) return 1;
     qInfo() << "EV TLS server listening on" << port << "database" << dbPath;
     return app.exec();
 }
