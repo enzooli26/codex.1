@@ -1,8 +1,8 @@
-QT += core network sql
-CONFIG += console c++11
-CONFIG -= app_bundle
+QT += core gui widgets network sql
+CONFIG += c++11
 TEMPLATE = app
 TARGET = ev_device_simulator
-SOURCES += main.cpp simulator.cpp edgedatabase.cpp
-HEADERS += simulator.h edgedatabase.h
+SOURCES += main.cpp simulator.cpp edgedatabase.cpp simwindow.cpp
+HEADERS += simulator.h edgedatabase.h simwindow.h
+FORMS += simwindow.ui
 include(../common/common.pri)

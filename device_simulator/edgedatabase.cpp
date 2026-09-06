@@ -16,6 +16,7 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
     if(!m_db.open()){if(error)*error=m_db.lastError().text();return false;}
     QSqlQuery q(m_db);q.exec("PRAGMA foreign_keys=ON");q.exec("PRAGMA journal_mode=WAL");
     const QStringList sql={
+        "CREATE TABLE IF NOT EXISTS stations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'ONLINE')",
         "CREATE TABLE IF NOT EXISTS chargers(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER,code TEXT NOT NULL UNIQUE,type TEXT NOT NULL DEFAULT 'FAST',rated_power REAL NOT NULL DEFAULT 120,status TEXT NOT NULL DEFAULT 'IDLE',last_seen TEXT,total_sessions INTEGER NOT NULL DEFAULT 0,total_duration INTEGER NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS charge_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,central_order_id INTEGER NOT NULL UNIQUE,user_id INTEGER NOT NULL,charger_id INTEGER NOT NULL REFERENCES chargers(id),status TEXT NOT NULL,mode TEXT NOT NULL,target REAL NOT NULL,start_at TEXT NOT NULL,end_at TEXT,energy REAL NOT NULL DEFAULT 0,duration INTEGER NOT NULL DEFAULT 0,amount REAL NOT NULL DEFAULT 0,base_price REAL NOT NULL DEFAULT 1.2)",
         "CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT,charger_id INTEGER NOT NULL REFERENCES chargers(id),order_id INTEGER REFERENCES charge_orders(id),sampled_at TEXT NOT NULL,voltage REAL,current REAL,power REAL,soc REAL,energy_total REAL)",
@@ -23,14 +24,69 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
         "CREATE INDEX IF NOT EXISTS idx_edge_telemetry_time ON telemetry(charger_id,sampled_at)"};
     for(const QString &statement:sql)if(!q.exec(statement)){if(error)*error=q.lastError().text();return false;}
     QSqlQuery add(m_db);add.prepare("INSERT OR IGNORE INTO chargers(code,last_seen) VALUES(?,?)");
-    for(const QString &code:chargerCodes){add.bindValue(0,code);add.bindValue(1,utcNow());if(!add.exec()){if(error)*error=add.lastError().text();return false;}}
+    QMap<QString,QString> stationMap; // prefix -> station name
+    stationMap["DL-SW-"] = "软件园充电站";
+    stationMap["DL-GX-"] = "高新园区充电站";
+    for(const QString &code:chargerCodes){
+        QString stationName;
+        for(auto it=stationMap.constBegin();it!=stationMap.constEnd();++it){
+            if(code.startsWith(it.key())){stationName=it.value();break;}
+        }
+        if(stationName.isEmpty())stationName="未分组站点";
+        QSqlQuery st(m_db);st.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");
+        st.addBindValue(stationName);st.exec();
+        QSqlQuery idq(m_db);idq.prepare("SELECT id FROM stations WHERE name=?");
+        idq.addBindValue(stationName);int stationId=0;
+        if(idq.exec()&&idq.next())stationId=idq.value(0).toInt();
+        add.bindValue(0,code);add.bindValue(1,utcNow());
+        if(!add.exec()){if(error)*error=add.lastError().text();return false;}
+        QSqlQuery upd(m_db);upd.prepare("UPDATE chargers SET station_id=? WHERE code=? AND station_id IS NULL");
+        upd.bindValue(0,stationId);upd.bindValue(1,code);upd.exec();
+    }
     return true;
+}
+
+QJsonArray EdgeDatabase::stations(QString *error)
+{
+    QSqlQuery q(m_db);
+    const char *sql = "SELECT s.id,s.name,s.status,"
+                      "COUNT(c.id),SUM(CASE WHEN c.status='CHARGING' THEN 1 ELSE 0 END),"
+                      "SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END) "
+                      "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
+                      "GROUP BY s.id ORDER BY s.id";
+    if(!q.exec(sql)){if(error)*error=q.lastError().text();return{};}
+    QJsonArray result;while(q.next())result.append(QJsonObject{
+        {"id",q.value(0).toInt()},{"name",q.value(1).toString()},{"status",q.value(2).toString()},
+        {"total",q.value(3).toInt()},{"charging",q.value(4).toInt()},{"idle",q.value(5).toInt()}});
+    return result;
 }
 
 QJsonArray EdgeDatabase::chargers(QString *error)
 {
     QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id")){if(error)*error=q.lastError().text();return{};}
     QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});return result;
+}
+
+QJsonArray EdgeDatabase::chargersByStation(int stationId, QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("SELECT code,type,rated_power,status FROM chargers WHERE station_id=? ORDER BY id");
+    q.addBindValue(stationId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});
+    return result;
+}
+
+QJsonObject EdgeDatabase::activeOrderForCharger(const QString &chargerCode, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT o.central_order_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,COALESCE(o.end_at,'') "
+              "FROM charge_orders o JOIN chargers c ON c.id=o.charger_id "
+              "WHERE c.code=? AND o.status IN ('CHARGING','SYNC_PENDING') ORDER BY o.id DESC LIMIT 1");
+    q.addBindValue(chargerCode);
+    if(!q.exec()||!q.next()){if(error&&error->isEmpty())*error="";return{};}
+    return{{"orderId",q.value(0).toLongLong()},{"status",q.value(1).toString()},{"mode",q.value(2).toString()},
+        {"target",q.value(3).toDouble()},{"energy",q.value(4).toDouble()},{"duration",q.value(5).toInt()},
+        {"amount",q.value(6).toDouble()},{"endAt",q.value(7).toString()}};
 }
 
 QJsonArray EdgeDatabase::pendingOrders(QString *error)

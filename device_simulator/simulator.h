@@ -17,6 +17,15 @@ public:
                        const QString &token,QObject *parent=nullptr);
     bool initialize(QString *error);
     void start(const QString &host,quint16 port);
+    EdgeDatabase &database(){return m_database;}
+    bool isRegistered() const {return m_registered;}
+signals:
+    void connectionChanged(bool connected);
+    void chargerStatusChanged(const QString &code, const QString &status);
+    void orderChanged(const QString &chargerCode, const QJsonObject &order);
+    void syncCompleted();
+public slots:
+    void stopOrder(const QString &chargerCode);
 private slots:
     void connected();
     void readMessages();

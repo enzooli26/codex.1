@@ -32,12 +32,14 @@ void Simulator::connected()
     QString error;const QJsonArray chargers=m_database.chargers(&error);
     sendRequest("device.register",{{"token",m_token},{"chargers",chargers}});
     qInfo()<<"charger edge TLS connected; local database"<<m_databasePath;
+    emit connectionChanged(true);
 }
 
 void Simulator::reconnect()
 {
     m_registered=false;m_heartbeat.stop();
     qWarning()<<"central server disconnected; local charging and metering continue";
+    emit connectionChanged(false);
     QTimer::singleShot(3000,this,[this]{QString error;SecureConnect::connectToServer(&m_socket,m_socket.property("host").toString(),static_cast<quint16>(m_socket.property("port").toUInt()),&error);if(!error.isEmpty())qWarning()<<error;});
 }
 
@@ -61,12 +63,33 @@ void Simulator::dispatch(const QJsonObject &message)
     if(type=="device.sync.result"){
         if(message.value("code").toInt()!=0){qWarning()<<"sync rejected"<<message.value("message").toString();return;}
         for(const auto &value:message.value("data").toObject().value("results").toArray()){
-            const QJsonObject item=value.toObject();if(item.value("code").toInt()==0&&item.value("status").toString()=="COMPLETED")m_database.settleOrder(item.value("orderId").toVariant().toLongLong(),&error);
+            const QJsonObject item=value.toObject();
+            if(item.value("code").toInt()==0&&item.value("status").toString()=="COMPLETED"){
+                qint64 oid=item.value("orderId").toVariant().toLongLong();
+                m_database.settleOrder(oid,&error);
+            }
         }
+        emit syncCompleted();
         return;
     }
-    if(type=="device.order.start")data=m_database.startOrder(payload,&error);
-    else if(type=="device.order.stop")data=m_database.stopOrder(payload.value("orderId").toVariant().toLongLong(),&error);
+    if(type=="device.order.start"){
+        data=m_database.startOrder(payload,&error);
+        if(error.isEmpty()){
+            const QString code=payload.value("chargerCode").toString();
+            emit chargerStatusChanged(code,"CHARGING");
+            emit orderChanged(code, data);
+        }
+    }
+    else if(type=="device.order.stop"){
+        data=m_database.stopOrder(payload.value("orderId").toVariant().toLongLong(),&error);
+        if(error.isEmpty()||data.value("status").toString()=="SYNC_PENDING"){
+            const QString code=payload.value("chargerCode").toString();
+            if(!code.isEmpty()){
+                emit chargerStatusChanged(code,"IDLE");
+                emit orderChanged(code, data);
+            }
+        }
+    }
     else if(type=="device.order.settled"){
         if(m_database.settleOrder(payload.value("orderId").toVariant().toLongLong(),&error))data={{"settled",true}};
     }else if(type=="device.order.abort"){
@@ -92,6 +115,7 @@ void Simulator::telemetry()
         const double current=power*1000.0/voltage;m_soc[code]=qMin(100.0,m_soc.value(code,35.0)+0.05);
         const QJsonObject order=m_database.tick(code,voltage,current,power,m_soc.value(code),&error);
         if(!error.isEmpty()){qWarning()<<error;continue;}
+        if(!order.isEmpty())emit orderChanged(code,order);
         if(m_registered)sendRequest("device.telemetry",{{"chargerCode",code},{"voltage",voltage},{"current",current},{"power",power},{"soc",m_soc.value(code)}});
         if(order.value("status").toString()=="SYNC_PENDING")completed=true;
     }
@@ -102,4 +126,18 @@ void Simulator::sendSync()
 {
     if(!m_registered)return;QString error;const QJsonArray orders=m_database.pendingOrders(&error);
     if(error.isEmpty())sendRequest("device.sync",{{"orders",orders}});else qWarning()<<error;
+}
+
+void Simulator::stopOrder(const QString &chargerCode)
+{
+    QString error;
+    const QJsonObject active=m_database.activeOrderForCharger(chargerCode,&error);
+    if(active.isEmpty())return;
+    const qint64 orderId=active.value("orderId").toVariant().toLongLong();
+    const QJsonObject result=m_database.stopOrder(orderId,&error);
+    if(!result.isEmpty()){
+        emit chargerStatusChanged(chargerCode,"IDLE");
+        emit orderChanged(chargerCode,result);
+    }
+    if(m_registered)sendSync();
 }

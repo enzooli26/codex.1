@@ -10,7 +10,10 @@ class EdgeDatabase
 public:
     ~EdgeDatabase();
     bool open(const QString &path,const QStringList &chargerCodes,QString *error);
+    QJsonArray stations(QString *error);
     QJsonArray chargers(QString *error);
+    QJsonArray chargersByStation(int stationId, QString *error);
+    QJsonObject activeOrderForCharger(const QString &chargerCode, QString *error);
     QJsonArray pendingOrders(QString *error);
     QJsonObject startOrder(const QJsonObject &command,QString *error);
     QJsonObject stopOrder(qint64 centralOrderId,QString *error);

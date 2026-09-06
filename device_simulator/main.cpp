@@ -1,12 +1,13 @@
+#include <QApplication>
 #include <QCommandLineParser>
-#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include "simulator.h"
+#include "simwindow.h"
 
 int main(int argc,char *argv[])
 {
-    QCoreApplication app(argc,argv);QCoreApplication::setApplicationName("ev_device_simulator");
+    QApplication app(argc,argv);QApplication::setApplicationName("ev_device_simulator");
     QCommandLineParser p;p.addHelpOption();
     p.addOption({"host","Central server host","host","127.0.0.1"});
     p.addOption({"port","Central server port","port","9527"});
@@ -17,5 +18,8 @@ int main(int argc,char *argv[])
     if(codes.isEmpty()){qCritical()<<"at least one charger code is required";return 1;}
     Simulator simulator(codes,QDir::cleanPath(QDir::current().absoluteFilePath(p.value("database"))),p.value("token"));QString error;
     if(!simulator.initialize(&error)){qCritical()<<"cannot open charger database"<<error;return 1;}
-    simulator.start(p.value("host"),static_cast<quint16>(p.value("port").toUInt()));return app.exec();
+    simulator.start(p.value("host"),static_cast<quint16>(p.value("port").toUInt()));
+    SimWindow w(&simulator);
+    w.show();
+    return app.exec();
 }
