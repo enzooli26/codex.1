@@ -244,19 +244,108 @@ bool Database::cancelReservation(qint64 userId, qint64 reservationId, const QStr
 
 QJsonObject Database::startCharge(qint64 userId, qint64 chargerId, const QString &mode, double target, QString *error)
 {
-    if (target<=0 || !QStringList({"AMOUNT","ENERGY","TIME"}).contains(mode)) { if(error)*error="充电目标无效"; return {}; }
+    const QJsonObject pending=createPendingCharge(userId,chargerId,mode,target,error);
+    if(pending.isEmpty())return{};
+    return activatePendingCharge(userId,pending.value("orderId").toVariant().toLongLong(),error);
+}
+
+QJsonObject Database::createPendingCharge(qint64 userId,qint64 chargerId,const QString &mode,double target,QString *error)
+{
+    if(target<=0||!QStringList({"AMOUNT","ENERGY","TIME"}).contains(mode)){if(error)*error="充电目标无效";return{};}
     if(!begin(error))return{};
-    QSqlQuery user(m_db);user.prepare("SELECT balance,status FROM users WHERE id=?");user.addBindValue(userId);
-    if(!user.exec()||!user.next()||user.value(1).toString()!="NORMAL"||user.value(0).toDouble()<=0){rollback();if(error)*error="用户状态异常或余额不足";return{};}
-    QSqlQuery busy(m_db);busy.prepare("SELECT 1 FROM charge_orders WHERE user_id=? AND status IN ('CHARGING','PENDING_PAYMENT')");busy.addBindValue(userId);
+    QSqlQuery quote(m_db);
+    quote.prepare("SELECT u.balance,u.status,c.code,c.rated_power,c.status,s.base_price "
+                  "FROM users u,chargers c JOIN stations s ON s.id=c.station_id "
+                  "WHERE u.id=? AND c.id=?");
+    quote.addBindValue(userId);quote.addBindValue(chargerId);
+    if(!quote.exec()||!quote.next()){rollback();if(error)*error="用户或充电桩不存在";return{};}
+    const double balance=quote.value(0).toDouble();
+    const QString userStatus=quote.value(1).toString();
+    const QString chargerCode=quote.value(2).toString();
+    const double ratedPower=quote.value(3).toDouble();
+    const QString chargerStatus=quote.value(4).toString();
+    const double price=quote.value(5).toDouble();
+    if(userStatus!="NORMAL"){rollback();if(error)*error="用户状态异常";return{};}
+    if(!QStringList({"IDLE","RESERVED"}).contains(chargerStatus)){rollback();if(error)*error="充电桩不可用";return{};}
+    double required=target;
+    if(mode=="ENERGY")required=target*price;
+    else if(mode=="TIME")required=(target/60.0)*ratedPower*price;
+    required=qRound64(required*100.0)/100.0;
+    if(balance+0.0001<required){rollback();if(error)*error=QString("余额不足，预计至少需要 ¥%1（当前 ¥%2）").arg(required,0,'f',2).arg(balance,0,'f',2);return{};}
+    QSqlQuery busy(m_db);busy.prepare("SELECT 1 FROM charge_orders WHERE user_id=? AND status IN ('STARTING','CHARGING','PENDING_PAYMENT')");busy.addBindValue(userId);
     if(!busy.exec()||busy.next()){rollback();if(error)*error="存在未完成订单";return{};}
-    QSqlQuery lock(m_db);lock.prepare("UPDATE chargers SET status='CHARGING' WHERE id=? AND status IN ('IDLE','RESERVED')");lock.addBindValue(chargerId);
+    QSqlQuery lock(m_db);lock.prepare("UPDATE chargers SET status='STARTING' WHERE id=? AND status IN ('IDLE','RESERVED')");lock.addBindValue(chargerId);
     if(!lock.exec()||lock.numRowsAffected()!=1){rollback();if(error)*error="充电桩不可用";return{};}
-    QSqlQuery cancel(m_db);cancel.prepare("UPDATE reservations SET status='USED' WHERE user_id=? AND charger_id=? AND status='ACTIVE'");cancel.addBindValue(userId);cancel.addBindValue(chargerId);cancel.exec();
-    QSqlQuery insert(m_db);insert.prepare("INSERT INTO charge_orders(user_id,charger_id,status,mode,target,start_at,energy,duration,amount) VALUES(?,?,'CHARGING',?,?,?,0,0,0)");
+    QSqlQuery insert(m_db);insert.prepare("INSERT INTO charge_orders(user_id,charger_id,status,mode,target,start_at,energy,duration,amount) VALUES(?,?,'STARTING',?,?,?,0,0,0)");
     insert.addBindValue(userId);insert.addBindValue(chargerId);insert.addBindValue(mode);insert.addBindValue(target);insert.addBindValue(now());
     if(!insert.exec()||!commit(error)){rollback();if(error&&error->isEmpty())*error=insert.lastError().text();return{};}
-    return {{"orderId",insert.lastInsertId().toLongLong()},{"status","CHARGING"}};
+    return{{"orderId",insert.lastInsertId().toLongLong()},{"chargerId",chargerId},{"chargerCode",chargerCode},{"mode",mode},{"target",target},{"basePrice",price},{"ratedPower",ratedPower},{"requiredAmount",required}};
+}
+
+QJsonObject Database::activatePendingCharge(qint64 userId,qint64 orderId,QString *error)
+{
+    if(!begin(error))return{};
+    QSqlQuery find(m_db);find.prepare("SELECT charger_id FROM charge_orders WHERE id=? AND user_id=? AND status='STARTING'");find.addBindValue(orderId);find.addBindValue(userId);
+    if(!find.exec()||!find.next()){rollback();if(error)*error="待启动订单不存在";return{};}
+    const qint64 chargerId=find.value(0).toLongLong();
+    QSqlQuery order(m_db);order.prepare("UPDATE charge_orders SET status='CHARGING' WHERE id=?");order.addBindValue(orderId);
+    QSqlQuery charger(m_db);charger.prepare("UPDATE chargers SET status='CHARGING' WHERE id=? AND status IN ('STARTING','IDLE','RESERVED','OFFLINE')");charger.addBindValue(chargerId);
+    if(!order.exec()||!charger.exec()||charger.numRowsAffected()!=1){rollback();if(error)*error="订单激活失败";return{};}
+    QSqlQuery reservation(m_db);reservation.prepare("UPDATE reservations SET status='USED' WHERE user_id=? AND charger_id=? AND status='ACTIVE'");reservation.addBindValue(userId);reservation.addBindValue(chargerId);reservation.exec();
+    if(!commit(error)){rollback();return{};}
+    return{{"orderId",orderId},{"status","CHARGING"}};
+}
+
+bool Database::cancelPendingCharge(qint64 orderId,const QString &reason,QString *error)
+{
+    if(!begin(error))return false;
+    QSqlQuery find(m_db);find.prepare("SELECT charger_id,user_id FROM charge_orders WHERE id=? AND status='STARTING'");find.addBindValue(orderId);
+    if(!find.exec()||!find.next()){rollback();return true;}
+    const qint64 chargerId=find.value(0).toLongLong(),userId=find.value(1).toLongLong();
+    QSqlQuery order(m_db);order.prepare("UPDATE charge_orders SET status='CANCELLED',end_at=? WHERE id=?");order.addBindValue(now());order.addBindValue(orderId);
+    QSqlQuery charger(m_db);charger.prepare("UPDATE chargers SET status=CASE WHEN EXISTS(SELECT 1 FROM reservations WHERE user_id=? AND charger_id=? AND status='ACTIVE') THEN 'RESERVED' ELSE 'IDLE' END WHERE id=? AND status='STARTING'");charger.addBindValue(userId);charger.addBindValue(chargerId);charger.addBindValue(chargerId);
+    if(!order.exec()||!charger.exec()){rollback();if(error)*error=order.lastError().text();return false;}
+    QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('SYSTEM','CANCEL_DEVICE_START','ORDER',?,?,?)");log.addBindValue(orderId);log.addBindValue(reason);log.addBindValue(now());log.exec();
+    if(!commit(error)){rollback();return false;}return true;
+}
+
+QJsonObject Database::activeOrderForStop(qint64 userId,qint64 orderId,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("SELECT o.id,o.charger_id,c.code FROM charge_orders o JOIN chargers c ON c.id=o.charger_id WHERE o.id=? AND o.user_id=? AND o.status='CHARGING'");q.addBindValue(orderId);q.addBindValue(userId);
+    if(!q.exec()||!q.next()){if(error)*error="活动订单不存在";return{};}
+    return{{"orderId",q.value(0).toLongLong()},{"chargerId",q.value(1).toLongLong()},{"chargerCode",q.value(2).toString()}};
+}
+
+QJsonObject Database::completeChargeFromDevice(qint64 orderId,double energy,int duration,const QString &endAt,QString *error)
+{
+    if(energy<0||duration<0){if(error)*error="充电桩上报的结算数据无效";return{};}
+    if(!begin(error))return{};
+    QSqlQuery find(m_db);find.prepare("SELECT o.user_id,o.charger_id,o.status,s.base_price FROM charge_orders o JOIN chargers c ON c.id=o.charger_id JOIN stations s ON s.id=c.station_id WHERE o.id=?");find.addBindValue(orderId);
+    if(!find.exec()||!find.next()){rollback();if(error)*error="中心订单不存在";return{};}
+    const qint64 userId=find.value(0).toLongLong(),chargerId=find.value(1).toLongLong();
+    const QString oldStatus=find.value(2).toString();
+    if(oldStatus=="COMPLETED"){QSqlQuery done(m_db);done.prepare("SELECT amount,energy,duration FROM charge_orders WHERE id=?");done.addBindValue(orderId);done.exec();done.next();rollback();return{{"orderId",orderId},{"userId",userId},{"amount",done.value(0).toDouble()},{"energy",done.value(1).toDouble()},{"duration",done.value(2).toInt()},{"status","COMPLETED"}};}
+    if(oldStatus!="CHARGING"&&oldStatus!="STARTING"){rollback();if(error)*error="订单状态不可结算";return{};}
+    const double amount=qRound64(energy*find.value(3).toDouble()*100.0)/100.0;
+    QSqlQuery wallet(m_db);wallet.prepare("UPDATE users SET balance=balance-? WHERE id=? AND balance>=?");wallet.addBindValue(amount);wallet.addBindValue(userId);wallet.addBindValue(amount);
+    if(!wallet.exec()||wallet.numRowsAffected()!=1){rollback();if(error)*error="余额不足，订单需人工处理";return{};}
+    QSqlQuery update(m_db);update.prepare("UPDATE charge_orders SET status='COMPLETED',end_at=?,energy=?,duration=?,amount=? WHERE id=?");update.addBindValue(endAt.isEmpty()?now():endAt);update.addBindValue(energy);update.addBindValue(duration);update.addBindValue(amount);update.addBindValue(orderId);
+    if(!update.exec()){rollback();if(error)*error=update.lastError().text();return{};}
+    QSqlQuery flow(m_db);flow.prepare("INSERT INTO wallet_transactions(user_id,type,amount,balance_after,related_order_id,created_at) SELECT id,'CHARGE',-?,balance,?,? FROM users WHERE id=?");flow.addBindValue(amount);flow.addBindValue(orderId);flow.addBindValue(now());flow.addBindValue(userId);
+    QSqlQuery release(m_db);release.prepare("UPDATE chargers SET status='IDLE',total_sessions=total_sessions+1,total_duration=total_duration+? WHERE id=?");release.addBindValue(duration);release.addBindValue(chargerId);
+    if(!flow.exec()||!release.exec()||!commit(error)){rollback();return{};}
+    return{{"orderId",orderId},{"userId",userId},{"amount",amount},{"energy",energy},{"duration",duration},{"status","COMPLETED"}};
+}
+
+QJsonObject Database::syncDeviceOrder(qint64 orderId,const QString &chargerCode,const QString &status,double energy,int duration,const QString &endAt,QString *error)
+{
+    QSqlQuery owner(m_db);owner.prepare("SELECT o.id FROM charge_orders o JOIN chargers c ON c.id=o.charger_id WHERE o.id=? AND c.code=?");owner.addBindValue(orderId);owner.addBindValue(chargerCode);
+    if(!owner.exec()||!owner.next()){if(error)*error="订单与充电桩不匹配";return{};}
+    if(status=="SYNC_PENDING"||status=="COMPLETED")return completeChargeFromDevice(orderId,energy,duration,endAt,error);
+    QSqlQuery q(m_db);q.prepare("UPDATE charge_orders SET status='CHARGING',energy=MAX(energy,?),duration=MAX(duration,?) WHERE id=? AND status IN ('STARTING','CHARGING')");q.addBindValue(energy);q.addBindValue(duration);q.addBindValue(orderId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    updateHeartbeat(chargerCode,"CHARGING",error);
+    return{{"orderId",orderId},{"status","CHARGING"}};
 }
 
 QJsonObject Database::stopCharge(qint64 userId, qint64 orderId, QString *error)
@@ -280,9 +369,16 @@ QJsonObject Database::stopCharge(qint64 userId, qint64 orderId, QString *error)
 bool Database::updateHeartbeat(const QString &chargerCode, const QString &status, QString *error)
 {
     QSqlQuery q(m_db);
-    q.prepare("UPDATE chargers SET status=CASE WHEN status IN ('RESERVED','CHARGING') AND ?='IDLE' THEN status ELSE ? END,last_seen=? WHERE code=?");
-    q.addBindValue(status);q.addBindValue(status);q.addBindValue(now());q.addBindValue(chargerCode);
+    q.prepare("UPDATE chargers SET status=?,last_seen=? WHERE code=?");
+    q.addBindValue(status);q.addBindValue(now());q.addBindValue(chargerCode);
     if(!q.exec()){if(error)*error=q.lastError().text();return false;}return q.numRowsAffected()==1;
+}
+
+bool Database::markDeviceOffline(const QStringList &chargerCodes,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("UPDATE chargers SET status='OFFLINE' WHERE code=?");
+    for(const QString &code:chargerCodes){q.bindValue(0,code);if(!q.exec()){if(error)*error=q.lastError().text();return false;}}
+    return true;
 }
 
 bool Database::insertTelemetry(const QString &chargerCode,double voltage,double current,double power,double soc,QString *error)

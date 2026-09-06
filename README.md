@@ -1,6 +1,10 @@
 # 电动汽车充电桩应用管理平台
 
-当前课程设计版本：**V0.7.0**。
+当前课程设计版本：**V0.8.0**。
+
+V0.8.0 新增充电桩边缘服务器（由原设备模拟器增强而来）。边缘端自带 SQLite，保存充电桩、订单和遥测信息；客户端开始/停止充电均经过中心服务器转发，只有客户端、中心服务器、充电桩三方 TLS 连接正常且充电桩确认落单后，中心订单才会启动。中心网络中断时边缘端继续本地计量，重连后自动同步未完成/待结算订单，并以充电桩端状态为准修正中心状态。
+
+按金额、按电量、按时间三种模式均在启动前检查余额。其中按时间目标的单位为分钟，按“目标分钟 ÷ 60 × 电桩额定最大功率 × 电站单价”预估最大费用；达到任一模式目标后，充电桩本地自动停止并请求中心结算。
 
 V0.7.0 新增管理员电站编辑/删除、电桩新增/编辑/删除、真实电桩数量自动汇总、固定数据库路径与旧数据库自动迁移，并统一管理端表格为随窗口宽度自适应填满。统计表格已设置为只读，所有资料修改均通过 TLS 请求写入 SQLite。
 
@@ -25,7 +29,8 @@ make -j"$(nproc)"
 ```bash
 cp config/app.ini.example config/app.ini
 ./server/ev_server --config config/app.ini
-./device_simulator/ev_device_simulator --code DL-SW-001
+./device_simulator/ev_device_simulator --code DL-SW-001 \
+  --database data/charger-edge.db --token course-device-token
 ./user_client/ev_user_client
 ./admin_client/ev_admin_client
 ```
@@ -33,6 +38,8 @@ cp config/app.ini.example config/app.ini
 管理员初始账号为 `admin`，密码为 `123456`。首次成功登录会把旧版 SHA-256 哈希自动升级为加盐迭代哈希。腾讯地图 Key 填入 `config/app.ini` 的 `map/api_key`，不得提交真实 Key。
 
 TLS 演示证书和私钥位于 `config`。课程验收可直接使用；公开部署必须更换私钥和受信任证书，详见 `SECURITY.md`。
+
+中心端 `config/app.ini` 的 `device/token` 必须与充电桩端 `--token` 一致。可以用英文逗号一次模拟多个设备，例如 `--code DL-SW-001,DL-SW-002`。详细协议、数据库和断线同步流程见 `docs/CHARGER_EDGE.md`。
 
 如需立即看到订单、用户和营收图表，请先停止服务器，再导入演示数据：
 

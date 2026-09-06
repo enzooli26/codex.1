@@ -9,9 +9,14 @@ private_key=server-key.pem
 [database]
 path=data/charging.db
 
+[device]
+# Course-project shared credential. Change it in app.ini and pass the same
+# value to the charger simulator with --token. Do not commit the real token.
+token=course-device-token
+
 [map]
 provider=tencent
-api_key=
+api_key=6FYBZ-TL2EL-UQ4PZ-EUEJY-PRLT6-6WF64
 geolocation_enabled=true
 
 [reservation]

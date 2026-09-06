@@ -1,6 +1,41 @@
 #pragma once
+
+#include <QByteArray>
+#include <QHash>
+#include <QJsonObject>
 #include <QObject>
 #include <QSslSocket>
+#include <QStringList>
 #include <QTimer>
-#include <QJsonObject>
-class Simulator:public QObject{Q_OBJECT public:explicit Simulator(const QString&code,QObject*p=nullptr);void start(const QString&,quint16);private slots:void heartbeat();void telemetry();void reconnect();private:void send(const QString&,const QJsonObject&);QString m_code;QSslSocket m_socket;QTimer m_heartbeat;QTimer m_telemetry;double m_soc=35.0;};
+#include "edgedatabase.h"
+
+class Simulator : public QObject
+{
+    Q_OBJECT
+public:
+    explicit Simulator(const QStringList &codes,const QString &databasePath,
+                       const QString &token,QObject *parent=nullptr);
+    bool initialize(QString *error);
+    void start(const QString &host,quint16 port);
+private slots:
+    void connected();
+    void readMessages();
+    void heartbeat();
+    void telemetry();
+    void reconnect();
+private:
+    void dispatch(const QJsonObject &message);
+    void send(const QJsonObject &message);
+    void sendRequest(const QString &type,const QJsonObject &payload);
+    void sendSync();
+    QStringList m_codes;
+    QString m_databasePath;
+    QString m_token;
+    QSslSocket m_socket;
+    QByteArray m_buffer;
+    QTimer m_heartbeat;
+    QTimer m_telemetry;
+    EdgeDatabase m_database;
+    QHash<QString,double> m_soc;
+    bool m_registered=false;
+};
