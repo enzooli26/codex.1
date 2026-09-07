@@ -15,8 +15,6 @@ ui_*
 qrc_*
 
 # Local runtime state
-config/app.ini
-config/server-key.pem
 data/
 *.db
 *.db-shm
