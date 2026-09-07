@@ -21,6 +21,7 @@ SimWindow::SimWindow(Simulator *simulator, QWidget *parent)
     connect(m_simulator, &Simulator::chargerStatusChanged, this, &SimWindow::onChargerStatusChanged);
     connect(m_simulator, &Simulator::orderChanged, this, &SimWindow::onOrderChanged);
     connect(m_simulator, &Simulator::disconnectedStateChanged, this, &SimWindow::onDisconnectedChanged);
+    connect(ui->toggleConnBtn, &QPushButton::clicked, this, &SimWindow::onToggleConnection);
     qDebug() << "SimWindow constructed";
     buildStationList();
     qDebug() << "buildStationList called from constructor";
@@ -33,8 +34,9 @@ void SimWindow::onDisconnectedChanged(bool disconnected)
     if(disconnected){
         ui->connLabel->setText("⚠️ 网络异常");
         ui->connLabel->setStyleSheet("color:#e66b7b;font-weight:600;font-size:14px;");
+        ui->toggleConnBtn->setText("连接");
+        ui->toggleConnBtn->setStyleSheet("QPushButton{background:#416fe3;color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;padding:4px 12px;}QPushButton:hover{background:#3663d0;}");
     } else {
-        // 重连后刷新所有数据
         buildStationList();
         if(m_stationButtons.contains(m_currentStationId)){
             m_stationButtons[m_currentStationId]->setChecked(true);
@@ -240,9 +242,22 @@ void SimWindow::onConnectionChanged(bool connected)
     if(connected){
         ui->connLabel->setText("🔒 已连接");
         ui->connLabel->setStyleSheet("color:#2ca777;font-weight:600;font-size:14px;");
+        ui->toggleConnBtn->setText("断联");
+        ui->toggleConnBtn->setStyleSheet("QPushButton{background:#e66b7b;color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;padding:4px 12px;}QPushButton:hover{background:#d55a6a;}");
     } else {
         ui->connLabel->setText("● 未连接");
         ui->connLabel->setStyleSheet("color:#d85b6a;font-weight:600;font-size:14px;");
+        ui->toggleConnBtn->setText("连接");
+        ui->toggleConnBtn->setStyleSheet("QPushButton{background:#416fe3;color:white;border:none;border-radius:6px;font-size:13px;font-weight:600;padding:4px 12px;}QPushButton:hover{background:#3663d0;}");
+    }
+}
+
+void SimWindow::onToggleConnection()
+{
+    if(m_simulator->isRegistered()){
+        m_simulator->disconnectFromServer();
+    } else {
+        m_simulator->connectToServer();
     }
 }
 

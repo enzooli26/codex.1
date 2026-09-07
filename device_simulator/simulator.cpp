@@ -30,6 +30,30 @@ void Simulator::start(const QString &host,quint16 port)
     QString error;if(!SecureConnect::connectToServer(&m_socket,host,port,&error))qWarning()<<error;
 }
 
+void Simulator::disconnectFromServer()
+{
+    m_manualDisconnect=true;
+    m_heartbeat.stop();m_heartbeatTimer.stop();m_reconnectTimer.stop();
+    m_registered=false;m_heartbeatFailures=0;
+    if(m_socket.state()!=QAbstractSocket::UnconnectedState){
+        m_socket.disconnectFromHost();
+        if(m_socket.state()!=QAbstractSocket::UnconnectedState)m_socket.waitForDisconnected(2000);
+    }
+    qInfo()<<"simulator manually disconnected; local charging continues";
+    emit connectionChanged(false);
+    m_disconnected=true;
+    emit disconnectedStateChanged(m_disconnected);
+}
+
+void Simulator::connectToServer()
+{
+    m_manualDisconnect=false;
+    QString error;
+    const QString host=m_socket.property("host").toString();
+    const quint16 port=static_cast<quint16>(m_socket.property("port").toUInt());
+    if(!SecureConnect::connectToServer(&m_socket,host,port,&error))qWarning()<<error;
+}
+
 void Simulator::connected()
 {
     m_registered=false;m_heartbeat.start();m_telemetry.start();m_heartbeatTimer.start();
@@ -43,13 +67,19 @@ void Simulator::connected()
 
 void Simulator::reconnect()
 {
-    m_registered=false;m_heartbeat.stop();m_telemetry.stop();m_heartbeatTimer.stop();
+    m_registered=false;m_heartbeat.stop();m_heartbeatTimer.stop();
     qWarning()<<"central server disconnected; local charging and metering continue";
     emit connectionChanged(false);
-    m_disconnected = true;
+    m_disconnected=true;
     emit disconnectedStateChanged(m_disconnected);
-    m_heartbeatFailures = 0;
-    QTimer::singleShot(3000,this,[this]{QString error;SecureConnect::connectToServer(&m_socket,m_socket.property("host").toString(),static_cast<quint16>(m_socket.property("port").toUInt()),&error);if(!error.isEmpty())qWarning()<<error;});
+    m_heartbeatFailures=0;
+    checkDisconnection();
+    if(m_manualDisconnect)return;
+    QTimer::singleShot(3000,this,[this]{
+        if(m_manualDisconnect)return;
+        QString error;SecureConnect::connectToServer(&m_socket,m_socket.property("host").toString(),static_cast<quint16>(m_socket.property("port").toUInt()),&error);
+        if(!error.isEmpty())qWarning()<<error;
+    });
 }
 
 void Simulator::onHeartbeatTimeout()
@@ -68,14 +98,12 @@ void Simulator::onHeartbeatTimeout()
 
 void Simulator::checkDisconnection()
 {
-    // 当检测到断网时，更新所有进行中的订单状态为 PENDING
     QString error;
     const QJsonArray orders = m_database.pendingOrders(&error);
     const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    
     for(int i=0; i<orders.size(); ++i){
         const QJsonObject order = orders[i].toObject();
-        const qint64 orderId = order.value("id").toVariant().toLongLong();
+        const qint64 orderId = order.value("orderId").toVariant().toLongLong();
         if(m_database.updateOrderPaymentStatus(orderId, "PENDING", &error)){
             m_database.updateOrderDisconnectedAt(orderId, now, &error);
         }
@@ -132,6 +160,31 @@ void Simulator::sendSync()
     if(error.isEmpty())sendRequest("device.sync",{{"orders",orders}});else qWarning()<<error;
 }
 
+void Simulator::syncPendingOrders()
+{
+    if(!m_registered)return;
+    QString error;
+    const QJsonArray orders=m_database.pendingPaymentOrders(&error);
+    if(!error.isEmpty()){qWarning()<<error;return;}
+    if(orders.isEmpty())return;
+    QJsonArray syncOrders;
+    for(int i=0;i<orders.size();++i){
+        const QJsonObject o=orders[i].toObject();
+        if(o.value("status").toString()!="SYNC_PENDING")continue;
+        syncOrders.append(QJsonObject{
+            {"orderId",o.value("centralOrderId").toVariant().toLongLong()},
+            {"chargerCode",o.value("chargerCode").toString()},
+            {"status",o.value("status").toString()},
+            {"energy",o.value("energy").toDouble()},
+            {"duration",o.value("duration").toInt()},
+            {"endAt",o.value("endAt").toString()}
+        });
+    }
+    if(syncOrders.isEmpty())return;
+    qInfo()<<"syncing"<<syncOrders.size()<<"disconnected orders to server";
+    sendRequest("device.sync",{{"orders",syncOrders}});
+}
+
 void Simulator::stopOrder(const QString &chargerCode)
 {
     QString error;
@@ -151,7 +204,7 @@ void Simulator::dispatch(const QJsonObject &message)
     const QString type=message.value("type").toString();const QJsonObject payload=message.value("payload").toObject();QString error;QJsonObject data;
     if(type=="device.register.result"){
         if(message.value("code").toInt()!=0){qWarning()<<"device registration rejected"<<message.value("message").toString();m_socket.disconnectFromHost();return;}
-        m_registered=true;heartbeat();sendSync();return;
+        m_registered=true;heartbeat();sendSync();syncPendingOrders();return;
     }
     if(type=="device.sync.result"){
         if(message.value("code").toInt()!=0){qWarning()<<"sync rejected"<<message.value("message").toString();return;}

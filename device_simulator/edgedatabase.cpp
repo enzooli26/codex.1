@@ -131,8 +131,8 @@ bool EdgeDatabase::updateOrderDisconnectedAt(qint64 orderId, const QString &time
 QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
 {
     QSqlQuery q(m_db);
-    q.prepare("SELECT o.id,o.central_order_id,o.user_id,o.charger_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,o.end_at "
-              "FROM charge_orders o WHERE o.payment_status='PENDING' ORDER BY o.id ASC");
+    q.prepare("SELECT o.id,o.central_order_id,o.user_id,o.charger_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,o.end_at,c.code "
+              "FROM charge_orders o JOIN chargers c ON c.id=o.charger_id WHERE o.payment_status='PENDING' ORDER BY o.id ASC");
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}
     QJsonArray result;
     while(q.next()){
@@ -140,7 +140,8 @@ QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
             {"id",q.value(0).toLongLong()},{"centralOrderId",q.value(1).toLongLong()},{"userId",q.value(2).toLongLong()},
             {"chargerId",q.value(3).toLongLong()},{"status",q.value(4).toString()},{"mode",q.value(5).toString()},
             {"target",q.value(6).toDouble()},{"energy",q.value(7).toDouble()},{"duration",q.value(8).toInt()},
-            {"amount",q.value(9).toDouble()},{"startAt",q.value(10).toString()},{"endAt",q.value(11).toString()}
+            {"amount",q.value(9).toDouble()},{"startAt",q.value(10).toString()},{"endAt",q.value(11).toString()},
+            {"chargerCode",q.value(12).toString()}
         });
     }
     return result;
