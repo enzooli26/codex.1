@@ -16,21 +16,134 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
     if(!m_db.open()){if(error)*error=m_db.lastError().text();return false;}
     QSqlQuery q(m_db);q.exec("PRAGMA foreign_keys=ON");q.exec("PRAGMA journal_mode=WAL");
     const QStringList sql={
+        "CREATE TABLE IF NOT EXISTS stations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'ONLINE')",
         "CREATE TABLE IF NOT EXISTS chargers(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER,code TEXT NOT NULL UNIQUE,type TEXT NOT NULL DEFAULT 'FAST',rated_power REAL NOT NULL DEFAULT 120,status TEXT NOT NULL DEFAULT 'IDLE',last_seen TEXT,total_sessions INTEGER NOT NULL DEFAULT 0,total_duration INTEGER NOT NULL DEFAULT 0)",
-        "CREATE TABLE IF NOT EXISTS charge_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,central_order_id INTEGER NOT NULL UNIQUE,user_id INTEGER NOT NULL,charger_id INTEGER NOT NULL REFERENCES chargers(id),status TEXT NOT NULL,mode TEXT NOT NULL,target REAL NOT NULL,start_at TEXT NOT NULL,end_at TEXT,energy REAL NOT NULL DEFAULT 0,duration INTEGER NOT NULL DEFAULT 0,amount REAL NOT NULL DEFAULT 0,base_price REAL NOT NULL DEFAULT 1.2)",
+        "CREATE TABLE IF NOT EXISTS charge_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,central_order_id INTEGER NOT NULL UNIQUE,user_id INTEGER NOT NULL,charger_id INTEGER NOT NULL REFERENCES chargers(id),status TEXT NOT NULL,mode TEXT NOT NULL,target REAL NOT NULL,start_at TEXT NOT NULL,end_at TEXT,energy REAL NOT NULL DEFAULT 0,duration INTEGER NOT NULL DEFAULT 0,amount REAL NOT NULL DEFAULT 0,base_price REAL NOT NULL DEFAULT 1.2,payment_status TEXT NOT NULL DEFAULT 'PENDING',server_order_id INTEGER,disconnected_at TEXT)",
         "CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT,charger_id INTEGER NOT NULL REFERENCES chargers(id),order_id INTEGER REFERENCES charge_orders(id),sampled_at TEXT NOT NULL,voltage REAL,current REAL,power REAL,soc REAL,energy_total REAL)",
         "CREATE INDEX IF NOT EXISTS idx_edge_orders_status ON charge_orders(status)",
         "CREATE INDEX IF NOT EXISTS idx_edge_telemetry_time ON telemetry(charger_id,sampled_at)"};
     for(const QString &statement:sql)if(!q.exec(statement)){if(error)*error=q.lastError().text();return false;}
+    
+    // 清理可能存在的重复站点数据
+    QSqlQuery cleanStations(m_db);
+    cleanStations.prepare("DELETE FROM stations WHERE id NOT IN (SELECT MIN(id) FROM stations GROUP BY name)");
+    cleanStations.exec();
+    
     QSqlQuery add(m_db);add.prepare("INSERT OR IGNORE INTO chargers(code,last_seen) VALUES(?,?)");
-    for(const QString &code:chargerCodes){add.bindValue(0,code);add.bindValue(1,utcNow());if(!add.exec()){if(error)*error=add.lastError().text();return false;}}
+    QMap<QString,QString> stationMap; // prefix -> station name
+    stationMap["DL-SW-"] = "软件园充电站";
+    stationMap["DL-GX-"] = "高新园区充电站";
+    for(const QString &code:chargerCodes){
+        QString stationName;
+        for(auto it=stationMap.constBegin();it!=stationMap.constEnd();++it){
+            if(code.startsWith(it.key())){stationName=it.value();break;}
+        }
+        if(stationName.isEmpty())stationName="未分组站点";
+        
+        // 先确保站点存在 - 严格检查
+        QSqlQuery st(m_db);st.prepare("SELECT id FROM stations WHERE name=?");
+        st.addBindValue(stationName);
+        int stationId=0;
+        if(st.exec() && st.next()) {
+            stationId = st.value(0).toInt();
+        } else {
+            // 如果站点不存在，才插入
+            QSqlQuery insertSt(m_db);insertSt.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");
+            insertSt.addBindValue(stationName);
+            insertSt.exec();
+            // 再获取ID
+            QSqlQuery getId(m_db);getId.prepare("SELECT id FROM stations WHERE name=?");
+            getId.addBindValue(stationName);
+            if(getId.exec() && getId.next()) stationId = getId.value(0).toInt();
+        }
+        
+        add.bindValue(0,code);add.bindValue(1,utcNow());
+        if(!add.exec()){if(error)*error=add.lastError().text();return false;}
+        QSqlQuery upd(m_db);upd.prepare("UPDATE chargers SET station_id=? WHERE code=? AND station_id IS NULL");
+        upd.bindValue(0,stationId);upd.bindValue(1,code);upd.exec();
+    }
     return true;
+}
+
+QJsonArray EdgeDatabase::stations(QString *error)
+{
+    QSqlQuery q(m_db);
+    const char *sql = "SELECT s.id,s.name,s.status,"
+                      "COUNT(c.id),SUM(CASE WHEN c.status='CHARGING' THEN 1 ELSE 0 END),"
+                      "SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END) "
+                      "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
+                      "GROUP BY s.id ORDER BY s.id";
+    if(!q.exec(sql)){if(error)*error=q.lastError().text();return{};}
+    QJsonArray result;while(q.next())result.append(QJsonObject{
+        {"id",q.value(0).toInt()},{"name",q.value(1).toString()},{"status",q.value(2).toString()},
+        {"total",q.value(3).toInt()},{"charging",q.value(4).toInt()},{"idle",q.value(5).toInt()}});
+    return result;
 }
 
 QJsonArray EdgeDatabase::chargers(QString *error)
 {
     QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id")){if(error)*error=q.lastError().text();return{};}
     QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});return result;
+}
+
+QJsonArray EdgeDatabase::chargersByStation(int stationId, QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("SELECT code,type,rated_power,status FROM chargers WHERE station_id=? ORDER BY id");
+    q.addBindValue(stationId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});
+    return result;
+}
+
+QJsonObject EdgeDatabase::activeOrderForCharger(const QString &chargerCode, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT o.central_order_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,COALESCE(o.end_at,'') "
+              "FROM charge_orders o JOIN chargers c ON c.id=o.charger_id "
+              "WHERE c.code=? AND o.status IN ('CHARGING','SYNC_PENDING') ORDER BY o.id DESC LIMIT 1");
+    q.addBindValue(chargerCode);
+    if(!q.exec()||!q.next()){if(error&&error->isEmpty())*error="";return{};}
+    return{{"orderId",q.value(0).toLongLong()},{"status",q.value(1).toString()},{"mode",q.value(2).toString()},
+        {"target",q.value(3).toDouble()},{"energy",q.value(4).toDouble()},{"duration",q.value(5).toInt()},
+        {"amount",q.value(6).toDouble()},{"endAt",q.value(7).toString()}};
+}
+
+bool EdgeDatabase::updateOrderPaymentStatus(qint64 orderId, const QString &status, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE charge_orders SET payment_status=? WHERE id=?");
+    q.addBindValue(status);
+    q.addBindValue(orderId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return q.numRowsAffected() == 1;
+}
+
+bool EdgeDatabase::updateOrderDisconnectedAt(qint64 orderId, const QString &timestamp, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE charge_orders SET disconnected_at=? WHERE id=?");
+    q.addBindValue(timestamp);
+    q.addBindValue(orderId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return q.numRowsAffected() == 1;
+}
+
+QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT o.id,o.central_order_id,o.user_id,o.charger_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,o.end_at "
+              "FROM charge_orders o WHERE o.payment_status='PENDING' ORDER BY o.id ASC");
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    QJsonArray result;
+    while(q.next()){
+        result.append(QJsonObject{
+            {"id",q.value(0).toLongLong()},{"centralOrderId",q.value(1).toLongLong()},{"userId",q.value(2).toLongLong()},
+            {"chargerId",q.value(3).toLongLong()},{"status",q.value(4).toString()},{"mode",q.value(5).toString()},
+            {"target",q.value(6).toDouble()},{"energy",q.value(7).toDouble()},{"duration",q.value(8).toInt()},
+            {"amount",q.value(9).toDouble()},{"startAt",q.value(10).toString()},{"endAt",q.value(11).toString()}
+        });
+    }
+    return result;
 }
 
 QJsonArray EdgeDatabase::pendingOrders(QString *error)
@@ -48,8 +161,19 @@ QJsonObject EdgeDatabase::startOrder(const QJsonObject &command,QString *error)
     if(!charger.exec()||!charger.next()||charger.value(1).toString()!="IDLE"){m_db.rollback();if(error)*error="本地充电桩不空闲";return{};}
     const qint64 chargerId=charger.value(0).toLongLong();
     QSqlQuery update(m_db);update.prepare("UPDATE chargers SET status='CHARGING',rated_power=?,last_seen=? WHERE id=?");update.addBindValue(command.value("ratedPower").toDouble(120));update.addBindValue(utcNow());update.addBindValue(chargerId);
-    QSqlQuery insert(m_db);insert.prepare("INSERT INTO charge_orders(central_order_id,user_id,charger_id,status,mode,target,start_at,base_price) VALUES(?,?,?,'CHARGING',?,?,?,?)");insert.addBindValue(orderId);insert.addBindValue(command.value("userId").toVariant().toLongLong());insert.addBindValue(chargerId);insert.addBindValue(command.value("mode").toString());insert.addBindValue(command.value("target").toDouble());insert.addBindValue(utcNow());insert.addBindValue(command.value("basePrice").toDouble(1.2));
-    if(!update.exec()||!insert.exec()||!m_db.commit()){m_db.rollback();if(error)*error=insert.lastError().text();return{};}return orderObject(orderId,error);
+    QSqlQuery insert(m_db);insert.prepare("INSERT INTO charge_orders(central_order_id,user_id,charger_id,status,mode,target,start_at,base_price,server_order_id) VALUES(?,?,?,'CHARGING',?,?,?,?,-1)");insert.addBindValue(orderId);insert.addBindValue(command.value("userId").toVariant().toLongLong());insert.addBindValue(chargerId);insert.addBindValue(command.value("mode").toString());insert.addBindValue(command.value("target").toDouble());insert.addBindValue(utcNow());insert.addBindValue(command.value("basePrice").toDouble(1.2));
+    if(!update.exec()||!insert.exec()||!m_db.commit()){m_db.rollback();if(error)*error=insert.lastError().text();return{};}
+    return orderObject(orderId,error);
+}
+
+bool EdgeDatabase::updateServerOrderId(qint64 localOrderId, qint64 serverOrderId, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE charge_orders SET server_order_id=? WHERE id=?");
+    q.addBindValue(serverOrderId);
+    q.addBindValue(localOrderId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return q.numRowsAffected() == 1;
 }
 
 QJsonObject EdgeDatabase::orderObject(qint64 centralOrderId,QString *error)

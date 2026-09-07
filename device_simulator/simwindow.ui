@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SimWindow</class>
+ <widget class="QMainWindow" name="SimWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>充电桩模拟器</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="rootLayout">
+    <property name="leftMargin">
+     <number>16</number>
+    </property>
+    <property name="topMargin">
+     <number>12</number>
+    </property>
+    <property name="rightMargin">
+     <number>16</number>
+    </property>
+    <property name="bottomMargin">
+     <number>12</number>
+    </property>
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <item>
+     <widget class="QFrame" name="topBar">
+      <property name="styleSheet">
+       <string notr="true">QFrame#topBar{background:#ffffff;border:1px solid #e5eaf2;border-radius:10px;}</string>
+      </property>
+      <layout class="QHBoxLayout" name="topLayout">
+       <property name="leftMargin">
+        <number>14</number>
+       </property>
+       <property name="topMargin">
+        <number>8</number>
+       </property>
+       <property name="rightMargin">
+        <number>14</number>
+       </property>
+       <property name="bottomMargin">
+        <number>8</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="connLabel">
+         <property name="text">
+          <string>● 未连接</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">color:#d85b6a;font-weight:600;font-size:14px;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="addrLabel">
+         <property name="text">
+          <string>服务器: 127.0.0.1:9527</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">color:#7a879d;font-size:13px;</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="hs1">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QLabel" name="titleLabel">
+         <property name="text">
+          <string>充电桩模拟器</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">color:#25324a;font-weight:700;font-size:16px;</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QFrame" name="bodyFrame">
+      <property name="styleSheet">
+       <string notr="true">QFrame#bodyFrame{background:#ffffff;border:1px solid #e5eaf2;border-radius:10px;}</string>
+      </property>
+      <layout class="QHBoxLayout" name="bodyLayout">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QFrame" name="leftPanel">
+         <property name="minimumSize">
+          <size>
+           <width>240</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>240</width>
+           <height>16777215</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QFrame#leftPanel{background:#f7fafd;border-right:1px solid #e5eaf2;border-top-left-radius:10px;border-bottom-left-radius:10px;}</string>
+         </property>
+         <layout class="QVBoxLayout" name="leftLayout">
+          <property name="leftMargin">
+           <number>12</number>
+          </property>
+          <property name="topMargin">
+           <number>10</number>
+          </property>
+          <property name="rightMargin">
+           <number>12</number>
+          </property>
+          <property name="bottomMargin">
+           <number>10</number>
+          </property>
+          <property name="spacing">
+           <number>8</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="stationTitle">
+            <property name="text">
+             <string>充电站列表</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color:#25324a;font-weight:700;font-size:14px;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QScrollArea" name="stationScroll">
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
+            </property>
+            <property name="widgetResizable">
+             <bool>true</bool>
+            </property>
+            <widget class="QWidget" name="scrollContent">
+             <property name="geometry">
+              <rect>
+               <x>0</x>
+               <y>0</y>
+               <width>216</width>
+               <height>460</height>
+              </rect>
+             </property>
+             <layout class="QVBoxLayout" name="scrollLayout">
+              <property name="spacing">
+               <number>6</number>
+              </property>
+              <item>
+               <spacer name="vs1">
+                <property name="orientation">
+                 <enum>Qt::Vertical</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>20</width>
+                  <height>40</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </widget>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="rightPanel">
+         <layout class="QVBoxLayout" name="rightLayout">
+          <property name="leftMargin">
+           <number>16</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>16</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
+          <property name="spacing">
+           <number>10</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="chargerTitle">
+            <property name="text">
+             <string>充电桩</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color:#25324a;font-weight:700;font-size:15px;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QScrollArea" name="chargerScroll">
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
+            </property>
+            <property name="widgetResizable">
+             <bool>true</bool>
+            </property>
+            <widget class="QWidget" name="chargerScrollContent">
+             <property name="geometry">
+              <rect>
+               <x>0</x>
+               <y>0</y>
+               <width>590</width>
+               <height>470</height>
+              </rect>
+             </property>
+             <layout class="QVBoxLayout" name="chargerVLayout">
+              <property name="spacing">
+               <number>10</number>
+              </property>
+              <item>
+               <widget class="QLabel" name="emptyHint">
+                <property name="text">
+                 <string>请从左侧选择一个充电站</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignCenter</set>
+                </property>
+                <property name="styleSheet">
+                 <string notr="true">color:#9aa7bc;font-size:14px;</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="vs2">
+                <property name="orientation">
+                 <enum>Qt::Vertical</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>20</width>
+                  <height>40</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </widget>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
