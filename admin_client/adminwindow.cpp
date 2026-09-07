@@ -22,11 +22,12 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QUuid>
+#include <numeric>
 QT_CHARTS_USE_NAMESPACE
 
 AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWindow)
 {
-    ui->setupUi(this); ui->navList->setCurrentRow(0);
+    ui->setupUi(this); ui->navList->setCurrentRow(0); ui->sideLayout->setStretch(1,1);
     for(auto *table:findChildren<QTableWidget *>()){
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -38,6 +39,7 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
     m_revenueChart=new QChartView(this);m_revenueChart->setRenderHint(QPainter::Antialiasing);ui->revenueChartLayout->addWidget(m_revenueChart);
     m_statusChart=new QChartView(this);m_statusChart->setRenderHint(QPainter::Antialiasing);ui->statusChartLayout->addWidget(m_statusChart);
     m_stationChart=new QChartView(this);m_stationChart->setRenderHint(QPainter::Antialiasing);ui->stationChartLayout->addWidget(m_stationChart);
+    m_telemetryChart=new QChartView(this);m_telemetryChart->setRenderHint(QPainter::Antialiasing);ui->telemetryChartLayout->addWidget(m_telemetryChart);
     connect(ui->connectButton,&QPushButton::clicked,this,&AdminWindow::connectServer);connect(ui->loginButton,&QPushButton::clicked,this,&AdminWindow::login);
     connect(ui->addAdminButton,&QPushButton::clicked,this,&AdminWindow::addAdmin);
     connect(ui->refreshButton,&QPushButton::clicked,this,&AdminWindow::refreshAll);connect(ui->navList,&QListWidget::currentRowChanged,this,&AdminWindow::loadPage);
@@ -52,7 +54,8 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
     connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_loggedIn=false;ui->connectionLabel->setText("服务器未连接");ui->connectionLabel->setStyleSheet("color:#ff6b6b");});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
     auto *clock=new QTimer(this);connect(clock,&QTimer::timeout,this,[this]{ui->timeLabel->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));});clock->start(1000);
-    auto *autoRefresh=new QTimer(this);connect(autoRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn){send("admin.summary");send("admin.chargers");}});autoRefresh->start(2000);
+    auto *autoRefresh=new QTimer(this);connect(autoRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn)send("admin.summary");});autoRefresh->start(10000);
+    auto *chargerRefresh=new QTimer(this);connect(chargerRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn)send("admin.chargers");});chargerRefresh->start(2000);
 }
 AdminWindow::~AdminWindow(){delete ui;}
 void AdminWindow::connectServer(){m_socket.abort();QString error;if(!SecureConnect::connectToServer(&m_socket,ui->hostEdit->text().trimmed(),static_cast<quint16>(ui->portSpin->value()),&error))QMessageBox::warning(this,"连接失败",error);}
@@ -81,9 +84,34 @@ void AdminWindow::updateDashboard(const QJsonObject &d)
     fillTable(ui->activeOrdersTable,d.value("activeOrders").toArray(),{"id","phone","station","charger","energy","duration"});
     fillTable(ui->faultTable,d.value("faultChargers").toArray(),{"code","station","lastSeen"});
 }
+void AdminWindow::updateTelemetryChart(const QJsonArray &chargers)
+{
+    QMap<QString,QList<double>> voltMap,curMap,powMap;
+    for(const auto &v:chargers){const auto c=v.toObject();const QString st=c.value("station").toString();if(st.isEmpty())continue;const double vol=c.value("voltage").toDouble();const double cur=c.value("current").toDouble();const double pow=c.value("livePower").toDouble();if(vol>0||cur>0||pow>0){voltMap[st].append(vol);curMap[st].append(cur);powMap[st].append(pow);}}
+    QMap<QString,QVector<double>> avgV,avgC,avgP;
+    for(auto it=voltMap.constBegin();it!=voltMap.constEnd();++it){const auto &l=it.value();avgV[it.key()].append(l.isEmpty()?0:std::accumulate(l.begin(),l.end(),0.0)/l.size());}
+    for(auto it=curMap.constBegin();it!=curMap.constEnd();++it){const auto &l=it.value();avgC[it.key()].append(l.isEmpty()?0:std::accumulate(l.begin(),l.end(),0.0)/l.size());}
+    for(auto it=powMap.constBegin();it!=powMap.constEnd();++it){const auto &l=it.value();avgP[it.key()].append(l.isEmpty()?0:std::accumulate(l.begin(),l.end(),0.0)/l.size());}
+    for(auto it=avgV.constBegin();it!=avgV.constEnd();++it){const QString &k=it.key();m_telVoltage[k].append(it.value().last());if(m_telVoltage[k].size()>30)m_telVoltage[k].removeFirst();}
+    for(auto it=avgC.constBegin();it!=avgC.constEnd();++it){const QString &k=it.key();m_telCurrent[k].append(it.value().last());if(m_telCurrent[k].size()>30)m_telCurrent[k].removeFirst();}
+    for(auto it=avgP.constBegin();it!=avgP.constEnd();++it){const QString &k=it.key();m_telPower[k].append(it.value().last());if(m_telPower[k].size()>30)m_telPower[k].removeFirst();}
+    ++m_telIndex;
+    auto *chart=new QChart;chart->setTitle("电站实时遥测趋势");chart->setTheme(QChart::ChartThemeLight);chart->legend()->setVisible(true);chart->legend()->setAlignment(Qt::AlignBottom);
+    const QList<QColor> stationColors={QColor("#4878e8"),QColor("#e86448"),QColor("#48c864"),QColor("#c848c8")};int ci=0;
+    double yMax=10;
+    for(auto it=m_telVoltage.constBegin();it!=m_telVoltage.constEnd();++it){const QString &st=it.key();const QColor base=stationColors.at(ci%stationColors.size());++ci;
+        auto *vSeries=new QLineSeries;vSeries->setName(st+" 电压(V)");vSeries->setColor(base);const auto &vd=it.value();for(int i=0;i<vd.size();++i){vSeries->append(m_telIndex-vd.size()+i,vd[i]);yMax=qMax(yMax,vd[i]);}chart->addSeries(vSeries);
+        auto *cSeries=new QLineSeries;cSeries->setName(st+" 电流(A)");cSeries->setColor(base);cSeries->setPen(QPen(base,1,Qt::DashLine));const auto &cd=m_telCurrent.value(st);for(int i=0;i<cd.size();++i){cSeries->append(m_telIndex-cd.size()+i,cd[i]);yMax=qMax(yMax,cd[i]);}chart->addSeries(cSeries);
+        auto *pSeries=new QLineSeries;pSeries->setName(st+" 功率(kW)");pSeries->setColor(base);pSeries->setPen(QPen(base,1,Qt::DotLine));const auto &pd=m_telPower.value(st);for(int i=0;i<pd.size();++i){pSeries->append(m_telIndex-pd.size()+i,pd[i]);yMax=qMax(yMax,pd[i]);}chart->addSeries(pSeries);}
+    auto *xAxis=new QValueAxis;xAxis->setTitleText("采样");xAxis->setLabelFormat("%d");xAxis->setRange(qMax(0,m_telIndex-30),m_telIndex);chart->addAxis(xAxis,Qt::AlignBottom);
+    auto *yAxis=new QValueAxis;yAxis->setTitleText("数值");yAxis->setRange(0,yMax*1.15);chart->addAxis(yAxis,Qt::AlignLeft);
+    for(auto *s:chart->series())s->attachAxis(xAxis),s->attachAxis(yAxis);
+    chart->setAnimationOptions(QChart::SeriesAnimations);
+    auto *oldTelemetry=m_telemetryChart->chart();m_telemetryChart->setChart(chart);if(oldTelemetry)oldTelemetry->deleteLater();
+}
 void AdminWindow::readMessages()
 {
-    m_buffer+=m_socket.readAll();QString err;for(const auto &m:Protocol::decode(m_buffer,&err)){if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());continue;}const QString t=m.value("type").toString();const auto d=m.value("data").toObject();if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}else if(t=="admin.summary.result")updateDashboard(d);else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}else if(t=="admin.chargers.result")fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","sessions","duration","lastSeen","voltage","current","livePower"});else if(t=="admin.orders.result")fillTable(ui->ordersTable,d.value("items").toArray(),{"id","phone","station","charger","status","mode","target","energy","duration","amount","startAt","endAt"});else if(t=="admin.users.result")fillTable(ui->usersTable,d.value("items").toArray(),{"id","phone","nickname","balance","status","failedAttempts","lockedAt","createdAt"});else if(t=="admin.logs.result")fillTable(ui->logsTable,d.value("items").toArray(),{"id","actor","action","target","result","createdAt"});else if(t=="admin.account.add.result"){QMessageBox::information(this,"成功","新管理员账号已创建");send("admin.logs");}else if(QStringList({"admin.station.add.result","admin.station.update.result","admin.station.delete.result","admin.charger.add.result","admin.charger.update.result","admin.charger.delete.result"}).contains(t)){QMessageBox::information(this,"成功","资料已保存到数据库");send("admin.stations");send("admin.chargers");send("admin.summary");send("admin.logs");}else if(t=="admin.user.status.result"){send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});send("admin.logs");}else if(t=="admin.charger.restart.result"){QMessageBox::information(this,"成功","设备重启指令已执行");send("admin.chargers");send("admin.summary");send("admin.logs");}}if(!err.isEmpty())QMessageBox::warning(this,"协议错误",err);
+    m_buffer+=m_socket.readAll();QString err;for(const auto &m:Protocol::decode(m_buffer,&err)){if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());continue;}const QString t=m.value("type").toString();const auto d=m.value("data").toObject();if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}else if(t=="admin.summary.result")updateDashboard(d);else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}        else if(t=="admin.chargers.result"){const auto items=d.value("items").toArray();fillTable(ui->chargersTable,items,{"id","code","station","chargerType","power","status","sessions","duration","lastSeen","voltage","current","livePower"});updateTelemetryChart(items);}else if(t=="admin.orders.result")fillTable(ui->ordersTable,d.value("items").toArray(),{"id","phone","station","charger","status","mode","target","energy","duration","amount","startAt","endAt"});else if(t=="admin.users.result")fillTable(ui->usersTable,d.value("items").toArray(),{"id","phone","nickname","balance","status","failedAttempts","lockedAt","createdAt"});else if(t=="admin.logs.result")fillTable(ui->logsTable,d.value("items").toArray(),{"id","actor","action","target","result","createdAt"});else if(t=="admin.account.add.result"){QMessageBox::information(this,"成功","新管理员账号已创建");send("admin.logs");}else if(QStringList({"admin.station.add.result","admin.station.update.result","admin.station.delete.result","admin.charger.add.result","admin.charger.update.result","admin.charger.delete.result"}).contains(t)){QMessageBox::information(this,"成功","资料已保存到数据库");send("admin.stations");send("admin.chargers");send("admin.summary");send("admin.logs");}else if(t=="admin.user.status.result"){send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});send("admin.logs");}else if(t=="admin.charger.restart.result"){QMessageBox::information(this,"成功","设备重启指令已执行");send("admin.chargers");send("admin.summary");send("admin.logs");}}if(!err.isEmpty())QMessageBox::warning(this,"协议错误",err);
 }
 void AdminWindow::addStation(){send("admin.station.add",{{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()}});}
 void AdminWindow::updateStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电站");return;}send("admin.station.update",{{"stationId",ui->stationsTable->item(r,0)->text().toLongLong()},{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()},{"status",ui->stationStatusCombo->currentText()}});}

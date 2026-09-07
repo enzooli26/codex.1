@@ -4,6 +4,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QStringList>
+#include <QMap>
+#include <QVector>
 namespace Ui { class AdminWindow; }
 namespace QtCharts { class QChartView; }
 class AdminWindow : public QMainWindow
@@ -22,7 +24,13 @@ private:
     void loadPage(int index); void fillTable(class QTableWidget *table,const QJsonArray &items,const QStringList &keys);
     void updateStationChoices(const QJsonArray &items);
     void updateDashboard(const QJsonObject &data);
+    void updateTelemetryChart(const QJsonArray &chargers);
     Ui::AdminWindow *ui; QSslSocket m_socket; QByteArray m_buffer;
     QtCharts::QChartView *m_revenueChart=nullptr; QtCharts::QChartView *m_statusChart=nullptr;
-    QtCharts::QChartView *m_stationChart=nullptr; bool m_loggedIn=false;
+    QtCharts::QChartView *m_stationChart=nullptr; QtCharts::QChartView *m_telemetryChart=nullptr;
+    bool m_loggedIn=false;
+    QMap<QString,QVector<double>> m_telVoltage;
+    QMap<QString,QVector<double>> m_telCurrent;
+    QMap<QString,QVector<double>> m_telPower;
+    int m_telIndex=0;
 };
