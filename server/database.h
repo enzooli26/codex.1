@@ -38,12 +38,12 @@ public:
     bool markDeviceOffline(const QStringList &chargerCodes, QString *error);
     bool insertTelemetry(const QString &chargerCode, double voltage, double current,
                          double power, double soc, QString *error);
-    QJsonObject adminSummary(QString *error);
+    QJsonObject adminSummary(int trendDays, QString *error);
     QJsonArray adminStations(QString *error);
     QJsonArray adminChargers(QString *error);
-    QJsonArray adminOrders(QString *error);
+    QJsonArray adminOrders(const QString &statusFilter, const QString &keyword, QString *error);
     QJsonArray adminUsers(const QString &phoneFilter, QString *error);
-    QJsonArray adminLogs(QString *error);
+    QJsonArray adminLogs(const QString &keyword, QString *error);
     QJsonObject addStation(const QJsonObject &station, QString *error);
     bool updateStation(const QJsonObject &station, QString *error);
     bool deleteStation(qint64 stationId, QString *error);

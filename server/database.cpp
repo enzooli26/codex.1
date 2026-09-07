@@ -395,12 +395,13 @@ bool Database::insertTelemetry(const QString &chargerCode,double voltage,double 
     return true;
 }
 
-QJsonObject Database::adminSummary(QString *error)
+QJsonObject Database::adminSummary(int trendDays, QString *error)
 {
+    trendDays=trendDays==30?30:7;
     QJsonObject result;
     QSqlQuery q(m_db);
     if(!q.exec("SELECT COUNT(*),SUM(CASE WHEN status='IDLE' THEN 1 ELSE 0 END),SUM(CASE WHEN status='CHARGING' THEN 1 ELSE 0 END),SUM(CASE WHEN status='FAULT' THEN 1 ELSE 0 END) FROM chargers")||!q.next()){if(error)*error=q.lastError().text();return{};}
-    result["chargers"]=q.value(0).toInt();result["idle"]=q.value(1).toInt();result["charging"]=q.value(2).toInt();result["fault"]=q.value(3).toInt();
+    result["chargers"]=q.value(0).toInt();result["idle"]=q.value(1).toInt();result["charging"]=q.value(2).toInt();result["fault"]=q.value(3).toInt();result["trendDays"]=trendDays;
     QSqlQuery metrics(m_db);
     if(!metrics.exec("SELECT COALESCE(SUM(CASE WHEN date(end_at)=date('now','localtime') THEN amount END),0),"
                      "COALESCE(SUM(CASE WHEN strftime('%Y-%m',end_at)=strftime('%Y-%m','now','localtime') THEN amount END),0),"
@@ -410,7 +411,7 @@ QJsonObject Database::adminSummary(QString *error)
     result["revenue"]=metrics.value(2).toDouble();result["todayOrders"]=metrics.value(3).toInt();
     QSqlQuery users(m_db);if(users.exec("SELECT COUNT(*) FROM users")&&users.next())result["users"]=users.value(0).toInt();
     QJsonArray trend;
-    QSqlQuery tq(m_db);tq.exec("WITH RECURSIVE days(d) AS (SELECT date('now','localtime','-6 day') UNION ALL SELECT date(d,'+1 day') FROM days WHERE d<date('now','localtime')) SELECT d,COALESCE(SUM(o.amount),0) FROM days LEFT JOIN charge_orders o ON date(o.end_at)=d AND o.status='COMPLETED' GROUP BY d ORDER BY d");
+    QSqlQuery tq(m_db);const QString trendSql=QString("WITH RECURSIVE days(d) AS (SELECT date('now','localtime','-%1 day') UNION ALL SELECT date(d,'+1 day') FROM days WHERE d<date('now','localtime')) SELECT d,COALESCE(SUM(o.amount),0) FROM days LEFT JOIN charge_orders o ON date(o.end_at)=d AND o.status='COMPLETED' GROUP BY d ORDER BY d").arg(trendDays-1);if(!tq.exec(trendSql)){if(error)*error=tq.lastError().text();return{};}
     while(tq.next())trend.append(QJsonObject{{"date",tq.value(0).toString()},{"amount",tq.value(1).toDouble()}});result["revenueTrend"]=trend;
     QJsonArray ranking;
     QSqlQuery rq(m_db);rq.exec("SELECT s.name,COALESCE(SUM(o.amount),0) revenue FROM stations s LEFT JOIN chargers c ON c.station_id=s.id LEFT JOIN charge_orders o ON o.charger_id=c.id AND o.status='COMPLETED' GROUP BY s.id ORDER BY revenue DESC LIMIT 5");
@@ -432,13 +433,15 @@ QJsonArray Database::adminStations(QString *error)
 
 QJsonArray Database::adminChargers(QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("SELECT c.id,c.code,s.name,c.type,c.rated_power,c.status,c.total_sessions,c.total_duration,COALESCE(c.last_seen,'--') FROM chargers c JOIN stations s ON s.id=c.station_id ORDER BY c.id DESC");
-    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"code",q.value(1).toString()},{"station",q.value(2).toString()},{"chargerType",q.value(3).toString()},{"power",q.value(4).toDouble()},{"status",q.value(5).toString()},{"sessions",q.value(6).toInt()},{"duration",q.value(7).toInt()},{"lastSeen",q.value(8).toString()}});return a;
+    QSqlQuery q(m_db);q.prepare("SELECT c.id,c.code,s.name,c.type,c.rated_power,c.status,c.total_sessions,c.total_duration,COALESCE(c.last_seen,'--'),CASE WHEN c.status='FAULT' THEN '异常' WHEN c.status='OFFLINE' THEN '离线' WHEN c.last_seen IS NULL THEN '未上报' WHEN (julianday('now')-julianday(c.last_seen))*86400>120 THEN '心跳超时' ELSE '健康' END,CASE WHEN c.status='FAULT' THEN 20 WHEN c.status='OFFLINE' THEN 0 WHEN c.last_seen IS NULL THEN 60 WHEN (julianday('now')-julianday(c.last_seen))*86400>120 THEN 40 ELSE 100 END FROM chargers c JOIN stations s ON s.id=c.station_id ORDER BY c.id DESC");
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"code",q.value(1).toString()},{"station",q.value(2).toString()},{"chargerType",q.value(3).toString()},{"power",q.value(4).toDouble()},{"status",q.value(5).toString()},{"sessions",q.value(6).toInt()},{"duration",q.value(7).toInt()},{"lastSeen",q.value(8).toString()},{"health",QString("%1 (%2)").arg(q.value(9).toString()).arg(q.value(10).toInt())},{"healthScore",q.value(10).toInt()}});return a;
 }
 
-QJsonArray Database::adminOrders(QString *error)
+QJsonArray Database::adminOrders(const QString &statusFilter,const QString &keyword,QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("SELECT o.id,u.phone,s.name,c.code,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,COALESCE(o.end_at,'--') FROM charge_orders o JOIN users u ON u.id=o.user_id JOIN chargers c ON c.id=o.charger_id JOIN stations s ON s.id=c.station_id ORDER BY o.id DESC LIMIT 300");
+    const QString status=statusFilter.trimmed().toUpper(),term="%"+keyword.trimmed()+"%";
+    QSqlQuery q(m_db);q.prepare("SELECT o.id,u.phone,s.name,c.code,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,COALESCE(o.end_at,'--') FROM charge_orders o JOIN users u ON u.id=o.user_id JOIN chargers c ON c.id=o.charger_id JOIN stations s ON s.id=c.station_id WHERE (?='' OR o.status=?) AND (?='%%' OR u.phone LIKE ? OR s.name LIKE ? OR c.code LIKE ? OR CAST(o.id AS TEXT) LIKE ?) ORDER BY o.id DESC LIMIT 300");
+    q.addBindValue(status);q.addBindValue(status);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"phone",q.value(1).toString()},{"station",q.value(2).toString()},{"charger",q.value(3).toString()},{"status",q.value(4).toString()},{"mode",q.value(5).toString()},{"target",q.value(6).toDouble()},{"energy",q.value(7).toDouble()},{"duration",q.value(8).toInt()},{"amount",q.value(9).toDouble()},{"startAt",q.value(10).toString()},{"endAt",q.value(11).toString()}});return a;
 }
 
@@ -448,9 +451,9 @@ QJsonArray Database::adminUsers(const QString &phoneFilter,QString *error)
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"phone",q.value(1).toString()},{"nickname",q.value(2).toString()},{"balance",q.value(3).toDouble()},{"status",q.value(4).toString()},{"failedAttempts",q.value(5).toInt()},{"lockedAt",q.value(6).toString()},{"createdAt",q.value(7).toString()}});return a;
 }
 
-QJsonArray Database::adminLogs(QString *error)
+QJsonArray Database::adminLogs(const QString &keyword,QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("SELECT id,COALESCE(actor_type,'SYSTEM'),COALESCE(actor_id,0),action,COALESCE(target_type,'--'),COALESCE(target_id,0),COALESCE(result,'--'),created_at FROM operation_logs ORDER BY id DESC LIMIT 300");
+    const QString term="%"+keyword.trimmed()+"%";QSqlQuery q(m_db);q.prepare("SELECT id,COALESCE(actor_type,'SYSTEM'),COALESCE(actor_id,0),action,COALESCE(target_type,'--'),COALESCE(target_id,0),COALESCE(result,'--'),created_at FROM operation_logs WHERE (?='%%' OR COALESCE(actor_type,'SYSTEM') LIKE ? OR action LIKE ? OR COALESCE(target_type,'--') LIKE ? OR COALESCE(result,'--') LIKE ? OR CAST(id AS TEXT) LIKE ?) ORDER BY id DESC LIMIT 300");q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"actor",q.value(1).toString()+"#"+q.value(2).toString()},{"action",q.value(3).toString()},{"target",q.value(4).toString()+"#"+q.value(5).toString()},{"result",q.value(6).toString()},{"createdAt",q.value(7).toString()}});return a;
 }
 

@@ -26,6 +26,8 @@ inline bool configure(QSslSocket *socket, QString *error = nullptr)
     configuration.setPeerVerifyMode(QSslSocket::VerifyPeer);
     configuration.setProtocol(QSsl::TlsV1_2OrLater);
     socket->setSslConfiguration(configuration);
+    const QStringList commonNames = certificate.subjectInfo(QSslCertificate::CommonName);
+    if (!commonNames.isEmpty()) socket->setPeerVerifyName(commonNames.constFirst());
     return true;
 }
 
@@ -37,9 +39,6 @@ inline bool connectToServer(QSslSocket *socket, const QString &host, quint16 por
         return false;
     }
     if (!configure(socket, error)) return false;
-    // The course certificate is pinned in the application.  Keep hostname
-    // verification stable when a phone connects through a changing LAN IP.
-    socket->setPeerVerifyName(QStringLiteral("localhost"));
     socket->connectToHostEncrypted(host, port);
     return true;
 }

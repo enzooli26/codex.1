@@ -243,7 +243,7 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
     }else if(type=="map.config"){
         data={{"apiKey",m_mapApiKey},{"provider","tencent"}};
     }else if(type=="admin.summary"){
-        if(socket->property("role").toString()!="admin")error="无管理员权限";else data=m_database.adminSummary(&error);
+        if(socket->property("role").toString()!="admin")error="无管理员权限";else data=m_database.adminSummary(p.value("days").toInt(7),&error);
     }else if(type.startsWith("admin.")&&socket->property("role").toString()!="admin"){
         error="无管理员权限";
     }else if(type=="admin.stations"){
@@ -251,11 +251,11 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
     }else if(type=="admin.chargers"){
         data={{"items",m_database.adminChargers(&error)}};
     }else if(type=="admin.orders"){
-        data={{"items",m_database.adminOrders(&error)}};
+        data={{"items",m_database.adminOrders(p.value("status").toString(),p.value("keyword").toString(),&error)}};
     }else if(type=="admin.users"){
         data={{"items",m_database.adminUsers(p.value("phone").toString(),&error)}};
     }else if(type=="admin.logs"){
-        data={{"items",m_database.adminLogs(&error)}};
+        data={{"items",m_database.adminLogs(p.value("keyword").toString(),&error)}};
     }else if(type=="admin.station.add"){
         data=m_database.addStation(p,&error);
     }else if(type=="admin.station.update"){

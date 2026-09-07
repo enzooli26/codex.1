@@ -19,6 +19,7 @@ private slots:
     void addAdmin(); void changeUserStatus(const QString &status); void restartCharger();
 private:
     void send(const QString &type,const QJsonObject &payload=QJsonObject());
+    void requestSummary(); void requestOrders(); void requestLogs();
     void loadPage(int index); void fillTable(class QTableWidget *table,const QJsonArray &items,const QStringList &keys);
     void updateStationChoices(const QJsonArray &items);
     void updateDashboard(const QJsonObject &data);
