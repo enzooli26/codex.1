@@ -32,6 +32,12 @@ ServerApp::ServerApp(QObject *parent) : QObject(parent)
     connect(&m_server, &QTcpServer::newConnection, this, &ServerApp::acceptConnections);
     m_expiryTimer.setInterval(30000);
     connect(&m_expiryTimer,&QTimer::timeout,this,[this]{QString error;const int count=m_database.expireReservations(&error);if(count>0)qInfo()<<"expired reservations"<<count;if(!error.isEmpty())qWarning()<<error;});
+    m_inspectionTimer.setInterval(10000);
+    connect(&m_inspectionTimer,&QTimer::timeout,this,[this]{
+        QString error;const int count=m_database.inspectDevices(&error);
+        if(count>0)qInfo()<<"device inspection created alarms"<<count;
+        if(!error.isEmpty())qWarning()<<"device inspection failed"<<error;
+    });
 }
 
 bool ServerApp::start(quint16 port, const QString &databasePath,
@@ -56,6 +62,9 @@ bool ServerApp::start(quint16 port, const QString &databasePath,
     m_mapApiKey=mapApiKey;
     if (!m_server.listen(QHostAddress::Any, port)) { qCritical() << m_server.errorString(); return false; }
     m_expiryTimer.start();
+    m_database.inspectDevices(&error);
+    if(!error.isEmpty())qWarning()<<"initial device inspection failed"<<error;
+    m_inspectionTimer.start();
     return true;
 }
 
@@ -256,6 +265,18 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
         data={{"items",m_database.adminUsers(p.value("phone").toString(),&error)}};
     }else if(type=="admin.logs"){
         data={{"items",m_database.adminLogs(p.value("keyword").toString(),&error)}};
+    }else if(type=="admin.alarms"){
+        data={{"items",m_database.adminAlarms(&error)}};
+    }else if(type=="admin.maintenance"){
+        data={{"items",m_database.adminMaintenance(&error)}};
+    }else if(type=="admin.inspection.run"){
+        const int created=m_database.inspectDevices(&error);if(error.isEmpty())data={{"created",created}};
+    }else if(type=="admin.alarm.ack"){
+        if(m_database.acknowledgeAlarm(p.value("alarmId").toVariant().toLongLong(),&error))data={{"updated",true}};
+    }else if(type=="admin.maintenance.create"){
+        data=m_database.createMaintenance(p.value("alarmId").toVariant().toLongLong(),p.value("assignee").toString(),p.value("scheduledAt").toString(),&error);
+    }else if(type=="admin.maintenance.status"){
+        if(m_database.updateMaintenanceStatus(p.value("maintenanceId").toVariant().toLongLong(),p.value("status").toString(),p.value("result").toString(),&error))data={{"updated",true}};
     }else if(type=="admin.station.add"){
         data=m_database.addStation(p,&error);
     }else if(type=="admin.station.update"){

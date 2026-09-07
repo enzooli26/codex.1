@@ -44,6 +44,14 @@ public:
     QJsonArray adminOrders(const QString &statusFilter, const QString &keyword, QString *error);
     QJsonArray adminUsers(const QString &phoneFilter, QString *error);
     QJsonArray adminLogs(const QString &keyword, QString *error);
+    QJsonArray adminAlarms(QString *error);
+    QJsonArray adminMaintenance(QString *error);
+    int inspectDevices(QString *error);
+    bool acknowledgeAlarm(qint64 alarmId, QString *error);
+    QJsonObject createMaintenance(qint64 alarmId, const QString &assignee,
+                                  const QString &scheduledAt, QString *error);
+    bool updateMaintenanceStatus(qint64 maintenanceId, const QString &status,
+                                 const QString &result, QString *error);
     QJsonObject addStation(const QJsonObject &station, QString *error);
     bool updateStation(const QJsonObject &station, QString *error);
     bool deleteStation(qint64 stationId, QString *error);

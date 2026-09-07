@@ -63,4 +63,5 @@ private:
     QString m_deviceToken;
     QString m_mapApiKey;
     QTimer m_expiryTimer;
+    QTimer m_inspectionTimer;
 };

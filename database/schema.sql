@@ -7,9 +7,12 @@ CREATE TABLE IF NOT EXISTS charge_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,us
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT,charger_id INTEGER NOT NULL REFERENCES chargers(id),order_id INTEGER REFERENCES charge_orders(id),sampled_at TEXT NOT NULL,voltage REAL,current REAL,power REAL,soc REAL,temperature REAL,energy_total REAL);
 CREATE TABLE IF NOT EXISTS wallet_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),type TEXT NOT NULL,amount REAL NOT NULL,balance_after REAL NOT NULL,related_order_id INTEGER REFERENCES charge_orders(id),created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS tariffs(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,start_time TEXT NOT NULL,end_time TEXT NOT NULL,energy_price REAL NOT NULL,service_price REAL NOT NULL,occupancy_price REAL NOT NULL,enabled INTEGER NOT NULL DEFAULT 1);
-CREATE TABLE IF NOT EXISTS alarms(id INTEGER PRIMARY KEY AUTOINCREMENT,charger_id INTEGER REFERENCES chargers(id),level TEXT NOT NULL,type TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'OPEN',created_at TEXT NOT NULL,resolved_at TEXT);
+CREATE TABLE IF NOT EXISTS alarms(id INTEGER PRIMARY KEY AUTOINCREMENT,charger_id INTEGER REFERENCES chargers(id),level TEXT NOT NULL,type TEXT NOT NULL,message TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'OPEN',created_at TEXT NOT NULL,acknowledged_at TEXT,resolved_at TEXT);
+CREATE TABLE IF NOT EXISTS maintenance_orders(id INTEGER PRIMARY KEY AUTOINCREMENT,alarm_id INTEGER UNIQUE REFERENCES alarms(id),charger_id INTEGER NOT NULL REFERENCES chargers(id),issue TEXT NOT NULL,assignee TEXT NOT NULL,scheduled_at TEXT,status TEXT NOT NULL DEFAULT 'DISPATCHED',created_at TEXT NOT NULL,started_at TEXT,completed_at TEXT,result TEXT);
 CREATE TABLE IF NOT EXISTS operation_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,actor_type TEXT,actor_id INTEGER,action TEXT,target_type TEXT,target_id INTEGER,result TEXT,created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_orders_user_status ON charge_orders(user_id,status);
 CREATE INDEX IF NOT EXISTS idx_orders_charger_status ON charge_orders(charger_id,status);
 CREATE INDEX IF NOT EXISTS idx_telemetry_charger_time ON telemetry(charger_id,sampled_at);
 CREATE INDEX IF NOT EXISTS idx_reservation_expiry ON reservations(status,expires_at);
+CREATE INDEX IF NOT EXISTS idx_alarms_charger_status ON alarms(charger_id,status);
+CREATE INDEX IF NOT EXISTS idx_maintenance_status ON maintenance_orders(status,created_at);

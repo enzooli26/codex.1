@@ -32,7 +32,7 @@ bool Database::open(const QString &path, QString *error)
         {"users","password_salt","TEXT"},{"users","password_hash","TEXT"},
         {"users","failed_attempts","INTEGER NOT NULL DEFAULT 0"},{"users","locked_at","TEXT"},
         {"admins","password_salt","TEXT"},{"admins","failed_attempts","INTEGER NOT NULL DEFAULT 0"},
-        {"admins","locked_at","TEXT"}
+        {"admins","locked_at","TEXT"},{"alarms","acknowledged_at","TEXT"}
     };
     for (const auto &migration : migrations)
         if (!ensureColumn(migration.table,migration.column,migration.definition,error)) return false;
@@ -455,6 +455,61 @@ QJsonArray Database::adminLogs(const QString &keyword,QString *error)
 {
     const QString term="%"+keyword.trimmed()+"%";QSqlQuery q(m_db);q.prepare("SELECT id,COALESCE(actor_type,'SYSTEM'),COALESCE(actor_id,0),action,COALESCE(target_type,'--'),COALESCE(target_id,0),COALESCE(result,'--'),created_at FROM operation_logs WHERE (?='%%' OR COALESCE(actor_type,'SYSTEM') LIKE ? OR action LIKE ? OR COALESCE(target_type,'--') LIKE ? OR COALESCE(result,'--') LIKE ? OR CAST(id AS TEXT) LIKE ?) ORDER BY id DESC LIMIT 300");q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);q.addBindValue(term);
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"actor",q.value(1).toString()+"#"+q.value(2).toString()},{"action",q.value(3).toString()},{"target",q.value(4).toString()+"#"+q.value(5).toString()},{"result",q.value(6).toString()},{"createdAt",q.value(7).toString()}});return a;
+}
+
+QJsonArray Database::adminAlarms(QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("SELECT a.id,a.level,a.type,c.code,s.name,a.message,a.status,a.created_at,COALESCE(a.acknowledged_at,'--'),COALESCE(a.resolved_at,'--'),COALESCE(m.status,'未派单') FROM alarms a LEFT JOIN chargers c ON c.id=a.charger_id LEFT JOIN stations s ON s.id=c.station_id LEFT JOIN maintenance_orders m ON m.alarm_id=a.id ORDER BY CASE a.status WHEN 'OPEN' THEN 0 WHEN 'ACKNOWLEDGED' THEN 1 ELSE 2 END,a.id DESC LIMIT 300");
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray items;while(q.next())items.append(QJsonObject{{"id",q.value(0).toLongLong()},{"level",q.value(1).toString()},{"type",q.value(2).toString()},{"charger",q.value(3).toString()},{"station",q.value(4).toString()},{"message",q.value(5).toString()},{"status",q.value(6).toString()},{"createdAt",q.value(7).toString()},{"acknowledgedAt",q.value(8).toString()},{"resolvedAt",q.value(9).toString()},{"maintenance",q.value(10).toString()}});return items;
+}
+
+QJsonArray Database::adminMaintenance(QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("SELECT m.id,COALESCE(m.alarm_id,0),c.code,s.name,m.issue,m.assignee,COALESCE(m.scheduled_at,'--'),m.status,m.created_at,COALESCE(m.started_at,'--'),COALESCE(m.completed_at,'--'),COALESCE(m.result,'--') FROM maintenance_orders m JOIN chargers c ON c.id=m.charger_id JOIN stations s ON s.id=c.station_id ORDER BY CASE m.status WHEN 'IN_PROGRESS' THEN 0 WHEN 'DISPATCHED' THEN 1 ELSE 2 END,m.id DESC LIMIT 300");
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray items;while(q.next())items.append(QJsonObject{{"id",q.value(0).toLongLong()},{"alarmId",q.value(1).toLongLong()},{"charger",q.value(2).toString()},{"station",q.value(3).toString()},{"issue",q.value(4).toString()},{"assignee",q.value(5).toString()},{"scheduledAt",q.value(6).toString()},{"status",q.value(7).toString()},{"createdAt",q.value(8).toString()},{"startedAt",q.value(9).toString()},{"completedAt",q.value(10).toString()},{"result",q.value(11).toString()}});return items;
+}
+
+int Database::inspectDevices(QString *error)
+{
+    if(!begin(error))return -1;int created=0;const QString timestamp=now();
+    struct Rule{const char *level;const char *type;const char *message;const char *condition;};
+    const Rule rules[]={
+        {"CRITICAL","DEVICE_FAULT","设备主动上报故障，请立即检查","c.status='FAULT'"},
+        {"CRITICAL","NETWORK_OFFLINE","设备与中心服务器连接断开","c.status='OFFLINE'"},
+        {"WARNING","HEARTBEAT_TIMEOUT","设备超过 120 秒未上报心跳","c.last_seen IS NOT NULL AND c.status NOT IN ('OFFLINE','FAULT') AND (julianday('now')-julianday(c.last_seen))*86400>120"}
+    };
+    for(const Rule &rule:rules){
+        QSqlQuery insert(m_db);insert.prepare(QString("INSERT INTO alarms(charger_id,level,type,message,status,created_at) SELECT c.id,?,?,?,'OPEN',? FROM chargers c WHERE %1 AND NOT EXISTS(SELECT 1 FROM alarms a WHERE a.charger_id=c.id AND a.type=? AND a.status IN ('OPEN','ACKNOWLEDGED'))").arg(rule.condition));insert.addBindValue(rule.level);insert.addBindValue(rule.type);insert.addBindValue(rule.message);insert.addBindValue(timestamp);insert.addBindValue(rule.type);
+        if(!insert.exec()){rollback();if(error)*error=insert.lastError().text();return -1;}created+=qMax(0,insert.numRowsAffected());
+    }
+    struct Recovery{const char *type;const char *healthy;};const Recovery recoveries[]={
+        {"DEVICE_FAULT","c.status!='FAULT'"},{"NETWORK_OFFLINE","c.status!='OFFLINE'"},{"HEARTBEAT_TIMEOUT","c.last_seen IS NULL OR c.status IN ('OFFLINE','FAULT') OR (julianday('now')-julianday(c.last_seen))*86400<=120"}
+    };
+    for(const Recovery &recovery:recoveries){QSqlQuery resolve(m_db);resolve.prepare(QString("UPDATE alarms SET status='RESOLVED',resolved_at=? WHERE type=? AND status IN ('OPEN','ACKNOWLEDGED') AND EXISTS(SELECT 1 FROM chargers c WHERE c.id=alarms.charger_id AND %1)").arg(recovery.healthy));resolve.addBindValue(timestamp);resolve.addBindValue(recovery.type);if(!resolve.exec()){rollback();if(error)*error=resolve.lastError().text();return -1;}}
+    if(!commit(error)){rollback();return -1;}return created;
+}
+
+bool Database::acknowledgeAlarm(qint64 alarmId,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("UPDATE alarms SET status='ACKNOWLEDGED',acknowledged_at=? WHERE id=? AND status='OPEN'");q.addBindValue(now());q.addBindValue(alarmId);if(!q.exec()||q.numRowsAffected()!=1){if(error)*error="告警不存在或已经处理";return false;}QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ACK_ALARM','ALARM',?,'SUCCESS',?)");log.addBindValue(alarmId);log.addBindValue(now());log.exec();return true;
+}
+
+QJsonObject Database::createMaintenance(qint64 alarmId,const QString &assignee,const QString &scheduledAt,QString *error)
+{
+    const QString worker=assignee.trimmed();if(alarmId<=0||worker.isEmpty()){if(error)*error="请选择告警并填写维修负责人";return{};}if(!begin(error))return{};
+    QSqlQuery alarm(m_db);alarm.prepare("SELECT charger_id,message,status FROM alarms WHERE id=?");alarm.addBindValue(alarmId);if(!alarm.exec()||!alarm.next()||alarm.value(2).toString()=="RESOLVED"){rollback();if(error)*error="告警不存在或已经关闭";return{};}const qint64 chargerId=alarm.value(0).toLongLong();
+    QSqlQuery duplicate(m_db);duplicate.prepare("SELECT 1 FROM maintenance_orders WHERE alarm_id=?");duplicate.addBindValue(alarmId);if(!duplicate.exec()||duplicate.next()){rollback();if(error)*error="该告警已经生成维修工单";return{};}
+    const QString createdAt=now();QSqlQuery insert(m_db);insert.prepare("INSERT INTO maintenance_orders(alarm_id,charger_id,issue,assignee,scheduled_at,status,created_at) VALUES(?,?,?,?,?,'DISPATCHED',?)");insert.addBindValue(alarmId);insert.addBindValue(chargerId);insert.addBindValue(alarm.value(1).toString());insert.addBindValue(worker);insert.addBindValue(scheduledAt.trimmed().isEmpty()?createdAt:scheduledAt.trimmed());insert.addBindValue(createdAt);if(!insert.exec()){rollback();if(error)*error=insert.lastError().text();return{};}const qint64 id=insert.lastInsertId().toLongLong();
+    QSqlQuery ack(m_db);ack.prepare("UPDATE alarms SET status='ACKNOWLEDGED',acknowledged_at=COALESCE(acknowledged_at,?) WHERE id=?");ack.addBindValue(createdAt);ack.addBindValue(alarmId);if(!ack.exec()){rollback();if(error)*error=ack.lastError().text();return{};}QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','DISPATCH_MAINTENANCE','MAINTENANCE',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(createdAt);if(!log.exec()||!commit(error)){rollback();return{};}return{{"id",id}};
+}
+
+bool Database::updateMaintenanceStatus(qint64 maintenanceId,const QString &status,const QString &result,QString *error)
+{
+    if(!QStringList({"IN_PROGRESS","COMPLETED"}).contains(status)){if(error)*error="维修工单状态无效";return false;}if(status=="COMPLETED"&&result.trimmed().isEmpty()){if(error)*error="完成维修时必须填写维修结果";return false;}if(!begin(error))return false;
+    QSqlQuery find(m_db);find.prepare("SELECT alarm_id,charger_id,status FROM maintenance_orders WHERE id=?");find.addBindValue(maintenanceId);if(!find.exec()||!find.next()){rollback();if(error)*error="维修工单不存在";return false;}const qint64 alarmId=find.value(0).toLongLong(),chargerId=find.value(1).toLongLong();const QString old=find.value(2).toString();if((status=="IN_PROGRESS"&&old!="DISPATCHED")||(status=="COMPLETED"&&old!="IN_PROGRESS")){rollback();if(error)*error="请按照派单、开始维修、完成维修的顺序操作";return false;}
+    QSqlQuery update(m_db);if(status=="IN_PROGRESS"){update.prepare("UPDATE maintenance_orders SET status='IN_PROGRESS',started_at=? WHERE id=?");update.addBindValue(now());update.addBindValue(maintenanceId);}else{update.prepare("UPDATE maintenance_orders SET status='COMPLETED',completed_at=?,result=? WHERE id=?");update.addBindValue(now());update.addBindValue(result.trimmed());update.addBindValue(maintenanceId);}if(!update.exec()){rollback();if(error)*error=update.lastError().text();return false;}
+    if(status=="COMPLETED"){QSqlQuery alarm(m_db);alarm.prepare("UPDATE alarms SET status='RESOLVED',resolved_at=? WHERE id=?");alarm.addBindValue(now());alarm.addBindValue(alarmId);QSqlQuery charger(m_db);charger.prepare("UPDATE chargers SET status=CASE WHEN status='FAULT' THEN 'IDLE' ELSE status END WHERE id=?");charger.addBindValue(chargerId);if(!alarm.exec()||!charger.exec()){rollback();if(error)*error="关闭告警或恢复设备状态失败";return false;}}
+    QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN',?,'MAINTENANCE',?,'SUCCESS',?)");log.addBindValue(status=="COMPLETED"?"COMPLETE_MAINTENANCE":"START_MAINTENANCE");log.addBindValue(maintenanceId);log.addBindValue(now());if(!log.exec()||!commit(error)){rollback();return false;}return true;
 }
 
 QJsonObject Database::addStation(const QJsonObject &s,QString *error)

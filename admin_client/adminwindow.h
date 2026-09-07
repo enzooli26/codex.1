@@ -17,6 +17,8 @@ private slots:
     void addStation(); void updateStation(); void deleteStation();
     void addCharger(); void updateCharger(); void deleteCharger();
     void addAdmin(); void changeUserStatus(const QString &status); void restartCharger();
+    void refreshOperations(); void runInspection(); void acknowledgeAlarm();
+    void dispatchMaintenance(); void startMaintenance(); void completeMaintenance();
 private:
     void send(const QString &type,const QJsonObject &payload=QJsonObject());
     void requestSummary(); void requestOrders(); void requestLogs();

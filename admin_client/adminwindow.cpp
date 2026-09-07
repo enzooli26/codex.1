@@ -31,10 +31,22 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
         table->setSelectionMode(QAbstractItemView::SingleSelection);
+        table->setWordWrap(false);
+        table->setTextElideMode(Qt::ElideRight);
         table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         table->horizontalHeader()->setMinimumSectionSize(62);
         table->horizontalHeader()->setStretchLastSection(false);
     }
+    auto configureWideTable=[](QTableWidget *table,const QList<int> &widths){
+        table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+        table->horizontalHeader()->setMinimumSectionSize(70);
+        for(int column=0;column<widths.size();++column)table->setColumnWidth(column,widths.at(column));
+        table->horizontalHeader()->setSectionResizeMode(table->columnCount()-1,QHeaderView::Stretch);
+    };
+    configureWideTable(ui->alarmsTable,{70,90,150,130,150,340,120,120,180,180,180});
+    configureWideTable(ui->maintenanceTable,{80,80,130,150,320,120,180,120,180,180,300});
     m_revenueChart=new QChartView(this);m_revenueChart->setRenderHint(QPainter::Antialiasing);ui->revenueChartLayout->addWidget(m_revenueChart);
     m_statusChart=new QChartView(this);m_statusChart->setRenderHint(QPainter::Antialiasing);ui->statusChartLayout->addWidget(m_statusChart);
     m_stationChart=new QChartView(this);m_stationChart->setRenderHint(QPainter::Antialiasing);ui->stationChartLayout->addWidget(m_stationChart);
@@ -53,11 +65,17 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
     connect(ui->resetLogsButton,&QPushButton::clicked,this,[this]{ui->logKeywordEdit->clear();requestLogs();});
     connect(ui->freezeButton,&QPushButton::clicked,this,[this]{changeUserStatus("FROZEN");});connect(ui->unfreezeButton,&QPushButton::clicked,this,[this]{changeUserStatus("NORMAL");});
     connect(ui->restartButton,&QPushButton::clicked,this,&AdminWindow::restartCharger);connect(&m_socket,&QSslSocket::readyRead,this,&AdminWindow::readMessages);
+    connect(ui->runInspectionButton,&QPushButton::clicked,this,&AdminWindow::runInspection);
+    connect(ui->refreshOperationsButton,&QPushButton::clicked,this,&AdminWindow::refreshOperations);
+    connect(ui->ackAlarmButton,&QPushButton::clicked,this,&AdminWindow::acknowledgeAlarm);
+    connect(ui->dispatchMaintenanceButton,&QPushButton::clicked,this,&AdminWindow::dispatchMaintenance);
+    connect(ui->startMaintenanceButton,&QPushButton::clicked,this,&AdminWindow::startMaintenance);
+    connect(ui->completeMaintenanceButton,&QPushButton::clicked,this,&AdminWindow::completeMaintenance);
     connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->connectionLabel->setText("🔒 TLS 已连接");ui->connectionLabel->setStyleSheet("color:#3ddc97");});
     connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_loggedIn=false;ui->connectionLabel->setText("服务器未连接");ui->connectionLabel->setStyleSheet("color:#ff6b6b");});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
     auto *clock=new QTimer(this);connect(clock,&QTimer::timeout,this,[this]{ui->timeLabel->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));});clock->start(1000);
-    auto *autoRefresh=new QTimer(this);connect(autoRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn)requestSummary();});autoRefresh->start(10000);
+    auto *autoRefresh=new QTimer(this);connect(autoRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn){requestSummary();if(ui->pages->currentIndex()==2)refreshOperations();}});autoRefresh->start(10000);
 }
 AdminWindow::~AdminWindow(){delete ui;}
 void AdminWindow::connectServer(){m_socket.abort();QString error;if(!SecureConnect::connectToServer(&m_socket,ui->hostEdit->text().trimmed(),static_cast<quint16>(ui->portSpin->value()),&error))QMessageBox::warning(this,"连接失败",error);}
@@ -66,11 +84,39 @@ void AdminWindow::login(){if(ui->usernameEdit->text().trimmed().isEmpty()||ui->p
 void AdminWindow::requestSummary(){send("admin.summary",{{"days",ui->trendDaysCombo->currentIndex()==1?30:7}});}
 void AdminWindow::requestOrders(){QString status=ui->orderStatusCombo->currentIndex()==0?QString():ui->orderStatusCombo->currentText();send("admin.orders",{{"status",status},{"keyword",ui->orderKeywordEdit->text().trimmed()}});}
 void AdminWindow::requestLogs(){send("admin.logs",{{"keyword",ui->logKeywordEdit->text().trimmed()}});}
-void AdminWindow::refreshAll(){if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录管理员账号");return;}requestSummary();send("admin.stations");send("admin.chargers");requestOrders();send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});requestLogs();}
-void AdminWindow::loadPage(int index){ui->pages->setCurrentIndex(qMax(0,index));if(!m_loggedIn)return;if(index==0)requestSummary();else if(index==1)send("admin.stations");else if(index==2)send("admin.chargers");else if(index==3)requestOrders();else if(index==4)send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});else if(index==5)requestLogs();}
+void AdminWindow::refreshOperations(){if(!m_loggedIn)return;send("admin.alarms");send("admin.maintenance");}
+void AdminWindow::runInspection(){send("admin.inspection.run");}
+void AdminWindow::acknowledgeAlarm(){
+    const int row=ui->alarmsTable->currentRow();
+    if(row<0||!ui->alarmsTable->item(row,0)){QMessageBox::information(this,"提示","请先选择一条未关闭的告警");return;}
+    send("admin.alarm.ack",{{"alarmId",ui->alarmsTable->item(row,0)->text().toLongLong()}});
+}
+void AdminWindow::dispatchMaintenance(){
+    const int row=ui->alarmsTable->currentRow();
+    if(row<0||!ui->alarmsTable->item(row,0)){QMessageBox::information(this,"提示","请先选择需要维修的告警");return;}
+    bool ok=false;const QString assignee=QInputDialog::getText(this,"派发维修","维修负责人：",QLineEdit::Normal,QString(),&ok).trimmed();if(!ok)return;
+    if(assignee.isEmpty()){QMessageBox::warning(this,"输入错误","维修负责人不能为空");return;}
+    const QString defaultTime=QDateTime::currentDateTime().addSecs(3600).toString("yyyy-MM-dd HH:mm");
+    const QString scheduledAt=QInputDialog::getText(this,"派发维修","计划维修时间：",QLineEdit::Normal,defaultTime,&ok).trimmed();if(!ok)return;
+    send("admin.maintenance.create",{{"alarmId",ui->alarmsTable->item(row,0)->text().toLongLong()},{"assignee",assignee},{"scheduledAt",scheduledAt}});
+}
+void AdminWindow::startMaintenance(){
+    const int row=ui->maintenanceTable->currentRow();
+    if(row<0||!ui->maintenanceTable->item(row,0)){QMessageBox::information(this,"提示","请先选择已派发的维修工单");return;}
+    send("admin.maintenance.status",{{"maintenanceId",ui->maintenanceTable->item(row,0)->text().toLongLong()},{"status","IN_PROGRESS"},{"result",""}});
+}
+void AdminWindow::completeMaintenance(){
+    const int row=ui->maintenanceTable->currentRow();
+    if(row<0||!ui->maintenanceTable->item(row,0)){QMessageBox::information(this,"提示","请先选择维修中的工单");return;}
+    bool ok=false;const QString result=QInputDialog::getMultiLineText(this,"完成维修","填写处理措施与维修结果：",QString(),&ok).trimmed();if(!ok)return;
+    if(result.isEmpty()){QMessageBox::warning(this,"输入错误","完成维修时必须填写维修结果");return;}
+    send("admin.maintenance.status",{{"maintenanceId",ui->maintenanceTable->item(row,0)->text().toLongLong()},{"status","COMPLETED"},{"result",result}});
+}
+void AdminWindow::refreshAll(){if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录管理员账号");return;}requestSummary();send("admin.stations");send("admin.chargers");refreshOperations();requestOrders();send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});requestLogs();}
+void AdminWindow::loadPage(int index){ui->pages->setCurrentIndex(qMax(0,index));if(!m_loggedIn)return;if(index==0)requestSummary();else if(index==1)send("admin.stations");else if(index==2){send("admin.chargers");refreshOperations();}else if(index==3)requestOrders();else if(index==4)send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});else if(index==5)requestLogs();}
 void AdminWindow::fillTable(QTableWidget *table,const QJsonArray &items,const QStringList &keys)
 {
-    table->setUpdatesEnabled(false);table->clearContents();table->setRowCount(items.size());for(int r=0;r<items.size();++r){const auto o=items.at(r).toObject();for(int c=0;c<keys.size();++c){const QString key=keys.at(c);const QJsonValue v=o.value(key);QString t;if(v.isDouble()){int decimals=0;if(QStringList({"amount","balance","price","energy"}).contains(key))decimals=2;else if(QStringList({"longitude","latitude"}).contains(key))decimals=6;else if(key=="power")decimals=1;t=QString::number(v.toDouble(),'f',decimals);}else t=v.toVariant().toString();auto *item=new QTableWidgetItem(t);item->setTextAlignment(Qt::AlignCenter);table->setItem(r,c,item);}}table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);table->setUpdatesEnabled(true);
+    table->setUpdatesEnabled(false);table->clearContents();table->setRowCount(items.size());for(int r=0;r<items.size();++r){const auto o=items.at(r).toObject();for(int c=0;c<keys.size();++c){const QString key=keys.at(c);const QJsonValue v=o.value(key);QString t;if(v.isDouble()){int decimals=0;if(QStringList({"amount","balance","price","energy"}).contains(key))decimals=2;else if(QStringList({"longitude","latitude"}).contains(key))decimals=6;else if(key=="power")decimals=1;t=QString::number(v.toDouble(),'f',decimals);}else t=v.toVariant().toString();auto *item=new QTableWidgetItem(t);item->setTextAlignment(Qt::AlignCenter);item->setToolTip(t);table->setItem(r,c,item);}}table->setUpdatesEnabled(true);
 }
 
 void AdminWindow::updateStationChoices(const QJsonArray &items)
@@ -91,7 +137,39 @@ void AdminWindow::updateDashboard(const QJsonObject &d)
 }
 void AdminWindow::readMessages()
 {
-    m_buffer+=m_socket.readAll();QString err;for(const auto &m:Protocol::decode(m_buffer,&err)){if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());continue;}const QString t=m.value("type").toString();const auto d=m.value("data").toObject();if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}else if(t=="admin.summary.result")updateDashboard(d);else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}else if(t=="admin.chargers.result")fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","health","sessions","duration","lastSeen"});else if(t=="admin.orders.result"){const auto items=d.value("items").toArray();fillTable(ui->ordersTable,items,{"id","phone","station","charger","status","mode","target","energy","duration","amount","startAt","endAt"});ui->orderResultLabel->setText(QString("共 %1 条结果（最多显示 300 条）").arg(items.size()));}else if(t=="admin.users.result")fillTable(ui->usersTable,d.value("items").toArray(),{"id","phone","nickname","balance","status","failedAttempts","lockedAt","createdAt"});else if(t=="admin.logs.result"){const auto items=d.value("items").toArray();fillTable(ui->logsTable,items,{"id","actor","action","target","result","createdAt"});ui->logResultLabel->setText(QString("共 %1 条结果（最多显示 300 条）").arg(items.size()));}else if(t=="admin.account.add.result"){QMessageBox::information(this,"成功","新管理员账号已创建");requestLogs();}else if(QStringList({"admin.station.add.result","admin.station.update.result","admin.station.delete.result","admin.charger.add.result","admin.charger.update.result","admin.charger.delete.result"}).contains(t)){QMessageBox::information(this,"成功","资料已保存到数据库");send("admin.stations");send("admin.chargers");requestSummary();requestLogs();}else if(t=="admin.user.status.result"){send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});requestLogs();}else if(t=="admin.charger.restart.result"){QMessageBox::information(this,"成功","设备重启指令已执行");send("admin.chargers");requestSummary();requestLogs();}}if(!err.isEmpty())QMessageBox::warning(this,"协议错误",err);
+    m_buffer+=m_socket.readAll();QString err;
+    for(const auto &m:Protocol::decode(m_buffer,&err)){
+        if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());continue;}
+        const QString t=m.value("type").toString();const auto d=m.value("data").toObject();
+        if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}
+        else if(t=="admin.summary.result")updateDashboard(d);
+        else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}
+        else if(t=="admin.chargers.result")fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","health","sessions","duration","lastSeen"});
+        else if(t=="admin.alarms.result"){
+            const auto items=d.value("items").toArray();int active=0,critical=0;
+            for(const auto &value:items){const auto alarm=value.toObject();if(alarm.value("status").toString()!="RESOLVED")++active;if(alarm.value("status").toString()!="RESOLVED"&&alarm.value("level").toString()=="CRITICAL")++critical;}
+            fillTable(ui->alarmsTable,items,{"id","level","type","charger","station","message","status","maintenance","createdAt","acknowledgedAt","resolvedAt"});
+            ui->inspectionHint->setText(QString("每 10 秒自动巡检 · 未关闭 %1 条 · 严重 %2 条").arg(active).arg(critical));
+        }
+        else if(t=="admin.maintenance.result"){
+            const auto items=d.value("items").toArray();int pending=0;
+            for(const auto &value:items)if(value.toObject().value("status").toString()!="COMPLETED")++pending;
+            fillTable(ui->maintenanceTable,items,{"id","alarmId","charger","station","issue","assignee","scheduledAt","status","startedAt","completedAt","result"});
+            ui->maintenanceHint->setText(QString("维修流程：派发 → 开始维修 → 完成 · 待完成 %1 单").arg(pending));
+        }
+        else if(t=="admin.orders.result"){const auto items=d.value("items").toArray();fillTable(ui->ordersTable,items,{"id","phone","station","charger","status","mode","target","energy","duration","amount","startAt","endAt"});ui->orderResultLabel->setText(QString("共 %1 条结果（最多显示 300 条）").arg(items.size()));}
+        else if(t=="admin.users.result")fillTable(ui->usersTable,d.value("items").toArray(),{"id","phone","nickname","balance","status","failedAttempts","lockedAt","createdAt"});
+        else if(t=="admin.logs.result"){const auto items=d.value("items").toArray();fillTable(ui->logsTable,items,{"id","actor","action","target","result","createdAt"});ui->logResultLabel->setText(QString("共 %1 条结果（最多显示 300 条）").arg(items.size()));}
+        else if(t=="admin.inspection.run.result"){QMessageBox::information(this,"巡检完成",QString("本次新增 %1 条设备告警").arg(d.value("created").toInt()));refreshOperations();send("admin.chargers");requestSummary();}
+        else if(t=="admin.alarm.ack.result"){statusBar()->showMessage("告警已确认",4000);refreshOperations();requestLogs();}
+        else if(t=="admin.maintenance.create.result"){QMessageBox::information(this,"派发成功","维修工单已创建，并已记录维修负责人和计划时间");refreshOperations();requestLogs();}
+        else if(t=="admin.maintenance.status.result"){QMessageBox::information(this,"更新成功","维修工单状态已更新");refreshOperations();send("admin.chargers");requestSummary();requestLogs();}
+        else if(t=="admin.account.add.result"){QMessageBox::information(this,"成功","新管理员账号已创建");requestLogs();}
+        else if(QStringList({"admin.station.add.result","admin.station.update.result","admin.station.delete.result","admin.charger.add.result","admin.charger.update.result","admin.charger.delete.result"}).contains(t)){QMessageBox::information(this,"成功","资料已保存到数据库");send("admin.stations");send("admin.chargers");requestSummary();requestLogs();}
+        else if(t=="admin.user.status.result"){send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});requestLogs();}
+        else if(t=="admin.charger.restart.result"){QMessageBox::information(this,"成功","设备重启指令已执行");send("admin.chargers");requestSummary();requestLogs();}
+    }
+    if(!err.isEmpty())QMessageBox::warning(this,"协议错误",err);
 }
 void AdminWindow::addStation(){send("admin.station.add",{{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()}});}
 void AdminWindow::updateStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电站");return;}send("admin.station.update",{{"stationId",ui->stationsTable->item(r,0)->text().toLongLong()},{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()},{"status",ui->stationStatusCombo->currentText()}});}
