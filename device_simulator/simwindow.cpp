@@ -21,11 +21,30 @@ SimWindow::SimWindow(Simulator *simulator, QWidget *parent)
     connect(m_simulator, &Simulator::chargerStatusChanged, this, &SimWindow::onChargerStatusChanged);
     connect(m_simulator, &Simulator::orderChanged, this, &SimWindow::onOrderChanged);
     connect(m_simulator, &Simulator::disconnectedStateChanged, this, &SimWindow::onDisconnectedChanged);
+    connect(m_simulator, &Simulator::catalogChanged, this, &SimWindow::refreshView);
+    connect(ui->toggleConnBtn, &QPushButton::clicked, this, &SimWindow::onToggleConnection);
+    connect(ui->refreshBtn, &QPushButton::clicked, this, &SimWindow::refreshView);
     qDebug() << "SimWindow constructed";
     buildStationList();
     qDebug() << "buildStationList called from constructor";
     onConnectionChanged(m_simulator->isRegistered());
     qDebug() << "onConnectionChanged called from constructor";
+}
+
+void SimWindow::onToggleConnection()
+{
+    if(m_simulator->isRegistered())m_simulator->disconnectFromServer();
+    else m_simulator->connectToServer();
+}
+
+void SimWindow::refreshView()
+{
+    const int previous=m_currentStationId;
+    buildStationList();
+    if(previous>0&&m_stationButtons.contains(previous)){
+        m_stationButtons[previous]->setChecked(true);
+        onStationClicked(previous);
+    }
 }
 
 void SimWindow::onDisconnectedChanged(bool disconnected)
@@ -240,9 +259,11 @@ void SimWindow::onConnectionChanged(bool connected)
     if(connected){
         ui->connLabel->setText("🔒 已连接");
         ui->connLabel->setStyleSheet("color:#2ca777;font-weight:600;font-size:14px;");
+        ui->toggleConnBtn->setText("断开");
     } else {
         ui->connLabel->setText("● 未连接");
         ui->connLabel->setStyleSheet("color:#d85b6a;font-weight:600;font-size:14px;");
+        ui->toggleConnBtn->setText("重新连接");
     }
 }
 

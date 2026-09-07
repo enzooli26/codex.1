@@ -27,6 +27,17 @@ QT_CHARTS_USE_NAMESPACE
 AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWindow)
 {
     ui->setupUi(this); ui->navList->setCurrentRow(0);
+    ui->navList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    ui->navList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    ui->navList->setSpacing(2);
+    ui->navList->setMinimumHeight(ui->navList->count()*44+8);
+    ui->navList->setStyleSheet(
+        "QListWidget{background:transparent;border:0;outline:0;color:#63728a;font-size:15px;}"
+        "QListWidget::item{padding:7px 14px;margin:1px;border-radius:8px;}"
+        "QListWidget::item:selected{background:#e9efff;color:#2457d6;font-weight:600;}"
+    );
+    for(int row=0;row<ui->navList->count();++row)
+        ui->navList->item(row)->setSizeHint(QSize(0,40));
     for(auto *table:findChildren<QTableWidget *>()){
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -71,14 +82,15 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
     connect(ui->dispatchMaintenanceButton,&QPushButton::clicked,this,&AdminWindow::dispatchMaintenance);
     connect(ui->startMaintenanceButton,&QPushButton::clicked,this,&AdminWindow::startMaintenance);
     connect(ui->completeMaintenanceButton,&QPushButton::clicked,this,&AdminWindow::completeMaintenance);
-    connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->connectionLabel->setText("🔒 TLS 已连接");ui->connectionLabel->setStyleSheet("color:#3ddc97");});
-    connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_loggedIn=false;ui->connectionLabel->setText("服务器未连接");ui->connectionLabel->setStyleSheet("color:#ff6b6b");});
+    connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->connectionLabel->setText("🔒 TLS 已连接");ui->connectionLabel->setStyleSheet("color:#3ddc97");ui->connectButton->setText("已连接");});
+    connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_loggedIn=false;ui->connectionLabel->setText("服务器未连接");ui->connectionLabel->setStyleSheet("color:#ff6b6b");ui->connectButton->setText("重新连接");ui->loginPanel->setVisible(true);});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
     auto *clock=new QTimer(this);connect(clock,&QTimer::timeout,this,[this]{ui->timeLabel->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));});clock->start(1000);
     auto *autoRefresh=new QTimer(this);connect(autoRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn){requestSummary();if(ui->pages->currentIndex()==2)refreshOperations();}});autoRefresh->start(10000);
+    auto *deviceRefresh=new QTimer(this);connect(deviceRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn&&(ui->pages->currentIndex()==0||ui->pages->currentIndex()==2))send("admin.chargers");});deviceRefresh->start(2000);
 }
 AdminWindow::~AdminWindow(){delete ui;}
-void AdminWindow::connectServer(){m_socket.abort();QString error;if(!SecureConnect::connectToServer(&m_socket,ui->hostEdit->text().trimmed(),static_cast<quint16>(ui->portSpin->value()),&error))QMessageBox::warning(this,"连接失败",error);}
+void AdminWindow::connectServer(){m_socket.abort();ui->connectButton->setText("连接中…");QString error;if(!SecureConnect::connectToServer(&m_socket,ui->hostEdit->text().trimmed(),static_cast<quint16>(ui->portSpin->value()),&error)){ui->connectButton->setText("重新连接");QMessageBox::warning(this,"连接失败",error);}}
 void AdminWindow::send(const QString &type,const QJsonObject &payload){if(!m_socket.isEncrypted()){QMessageBox::information(this,"提示","请先建立 TLS 安全连接");return;}m_socket.write(Protocol::encode(Protocol::request(type,payload,QUuid::createUuid().toString(QUuid::WithoutBraces))));}
 void AdminWindow::login(){if(ui->usernameEdit->text().trimmed().isEmpty()||ui->passwordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","管理员账号和密码不能为空");return;}send("auth.admin",{{"username",ui->usernameEdit->text().trimmed()},{"password",ui->passwordEdit->text()}});}
 void AdminWindow::requestSummary(){send("admin.summary",{{"days",ui->trendDaysCombo->currentIndex()==1?30:7}});}
@@ -144,7 +156,7 @@ void AdminWindow::readMessages()
         if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}
         else if(t=="admin.summary.result")updateDashboard(d);
         else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}
-        else if(t=="admin.chargers.result")fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","health","sessions","duration","lastSeen"});
+    else if(t=="admin.chargers.result")fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","health","sessions","duration","lastSeen","voltage","current","livePower","soc"});
         else if(t=="admin.alarms.result"){
             const auto items=d.value("items").toArray();int active=0,critical=0;
             for(const auto &value:items){const auto alarm=value.toObject();if(alarm.value("status").toString()!="RESOLVED")++active;if(alarm.value("status").toString()!="RESOLVED"&&alarm.value("level").toString()=="CRITICAL")++critical;}

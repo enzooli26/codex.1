@@ -13,6 +13,7 @@ public:
     QJsonArray stations(QString *error);
     QJsonArray chargers(QString *error);
     QJsonArray chargersByStation(int stationId, QString *error);
+    bool syncCatalog(const QJsonArray &stations,const QJsonArray &chargers,QString *error);
     QJsonObject activeOrderForCharger(const QString &chargerCode, QString *error);
     bool updateOrderPaymentStatus(qint64 orderId, const QString &status, QString *error);
     bool updateOrderDisconnectedAt(qint64 orderId, const QString &timestamp, QString *error);

@@ -20,12 +20,15 @@ public:
     EdgeDatabase &database(){return m_database;}
     bool isRegistered() const {return m_registered;}
     bool isDisconnected() const {return m_disconnected;}
+    Q_INVOKABLE void disconnectFromServer();
+    Q_INVOKABLE void connectToServer();
 signals:
     void connectionChanged(bool connected);
     void chargerStatusChanged(const QString &code, const QString &status);
     void orderChanged(const QString &chargerCode, const QJsonObject &order);
     void syncCompleted();
     void disconnectedStateChanged(bool disconnected);
+    void catalogChanged();
 public slots:
     void stopOrder(const QString &chargerCode);
 private slots:
@@ -54,6 +57,7 @@ private:
     int m_heartbeatFailures = 0;
     bool m_registered=false;
     bool m_disconnected = false;
+    bool m_manualDisconnect = false;
     QString m_lastHeartbeatTime;
     EdgeDatabase m_database;
     QHash<QString,double> m_soc;

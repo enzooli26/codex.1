@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QSslSocket>
 #include <QVariantList>
+#include <QTimer>
 
 class MobileClient : public QObject
 {
@@ -18,6 +19,12 @@ class MobileClient : public QObject
     Q_PROPERTY(QString chargeStatus READ chargeStatus NOTIFY chargeChanged)
     Q_PROPERTY(bool charging READ charging NOTIFY chargeChanged)
     Q_PROPERTY(bool reserved READ reserved NOTIFY reservationChanged)
+    Q_PROPERTY(double voltage READ voltage NOTIFY liveChanged)
+    Q_PROPERTY(double current READ current NOTIFY liveChanged)
+    Q_PROPERTY(double power READ power NOTIFY liveChanged)
+    Q_PROPERTY(double soc READ soc NOTIFY liveChanged)
+    Q_PROPERTY(QString remainingText READ remainingText NOTIFY liveChanged)
+    Q_PROPERTY(QVariantList liveSamples READ liveSamples NOTIFY liveChanged)
 
 public:
     explicit MobileClient(QObject *parent=nullptr);
@@ -32,6 +39,9 @@ public:
     QString chargeStatus() const{return m_chargeStatus;}
     bool charging() const{return m_orderId>0;}
     bool reserved() const{return m_reservationId>0;}
+    double voltage() const{return m_voltage;} double current() const{return m_current;}
+    double power() const{return m_power;} double soc() const{return m_soc;}
+    QString remainingText() const{return m_remainingText;} QVariantList liveSamples() const{return m_liveSamples;}
 
     Q_INVOKABLE void connectServer(const QString &host,int port);
     Q_INVOKABLE void login(const QString &phone,const QString &password);
@@ -39,6 +49,8 @@ public:
     Q_INVOKABLE void recharge(double amount,const QString &password);
     Q_INVOKABLE void refreshStations();
     Q_INVOKABLE void refreshOrders();
+    Q_INVOKABLE void refreshLive();
+    Q_INVOKABLE void setStationSearch(const QString &text);
     Q_INVOKABLE void selectStation(int index);
     Q_INVOKABLE void reserve();
     Q_INVOKABLE void cancelReservation();
@@ -49,6 +61,7 @@ signals:
     void connectedChanged(); void loggedInChanged(); void accountChanged();
     void stationsChanged(); void ordersChanged(); void selectedIndexChanged(); void chargeChanged();
     void reservationChanged(); void notice(const QString &text,bool error);
+    void liveChanged();
 
 private slots:
     void readMessages();
@@ -56,8 +69,12 @@ private:
     void send(const QString &type,const QJsonObject &payload=QJsonObject());
     void handle(const QJsonObject &message);
     qint64 selectedChargerId() const;
-    QSslSocket m_socket; QByteArray m_buffer; QVariantList m_stations,m_orders;
+    void applyStationFilter(); void refreshUi();
+    QSslSocket m_socket; QByteArray m_buffer; QVariantList m_allStations,m_stations,m_orders,m_liveSamples;
     qint64 m_userId=0,m_reservationId=0,m_orderId=0; int m_selectedIndex=-1;
     double m_balance=0; QString m_userText=QStringLiteral("请先登录");
     QString m_chargeStatus=QStringLiteral("尚未开始充电");
+    QString m_stationSearch,m_remainingText=QStringLiteral("--");
+    double m_voltage=0,m_current=0,m_power=0,m_soc=0;
+    QTimer m_liveTimer;
 };

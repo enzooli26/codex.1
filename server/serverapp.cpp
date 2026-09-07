@@ -6,6 +6,8 @@
 #include <QRegularExpression>
 #include <QDebug>
 #include <QUuid>
+#include <QSet>
+#include <QtConcurrent/QtConcurrentRun>
 
 void TlsTcpServer::incomingConnection(qintptr descriptor)
 {
@@ -80,10 +82,23 @@ void ServerApp::acceptConnections()
 void ServerApp::readClient()
 {
     auto *socket=qobject_cast<QSslSocket *>(sender()); if(!socket)return;
-    QByteArray &buffer=m_buffers[socket]; buffer.append(socket->readAll()); QString error;
-    const auto messages=Protocol::decode(buffer,&error);
-    if(!error.isEmpty()){send(socket,{{"type","protocol.error"},{"code",400},{"message",error}});socket->disconnectFromHost();return;}
-    for(const auto &message:messages)dispatch(socket,message);
+    m_buffers[socket].append(socket->readAll());scheduleDecode(socket);
+}
+
+void ServerApp::scheduleDecode(QSslSocket *socket)
+{
+    if(!socket||m_decodeBusy.contains(socket)||m_buffers.value(socket).isEmpty())return;
+    m_decodeBusy.insert(socket);const QByteArray work=m_buffers.take(socket);QPointer<QSslSocket> guarded(socket);
+    QtConcurrent::run([this,guarded,work]() mutable {
+        QByteArray remaining=work;QString error;const QList<QJsonObject> messages=Protocol::decode(remaining,&error);
+        QMetaObject::invokeMethod(this,[this,guarded,remaining,error,messages]{
+            if(!guarded)return;QSslSocket *socket=guarded.data();
+            m_decodeBusy.remove(socket);m_buffers[socket].prepend(remaining);
+            if(!error.isEmpty()){send(socket,{{"type","protocol.error"},{"code",400},{"message",error}});socket->disconnectFromHost();return;}
+            for(const QJsonObject &message:messages)dispatch(socket,message);
+            scheduleDecode(socket);
+        },Qt::QueuedConnection);
+    });
 }
 
 void ServerApp::removeClient()
@@ -95,10 +110,17 @@ void ServerApp::removeClient()
     QString ignored;if(!disconnectedCodes.isEmpty())m_database.markDeviceOffline(disconnectedCodes,&ignored);
     const qint64 userId=socket->property("userId").toLongLong();
     if(userId>0&&m_userSockets.value(userId)==socket)m_userSockets.remove(userId);
-    m_buffers.remove(socket);socket->deleteLater();
+    m_buffers.remove(socket);m_decodeBusy.remove(socket);socket->deleteLater();
 }
 
 void ServerApp::send(QSslSocket *socket,const QJsonObject &message){socket->write(Protocol::encode(message));}
+
+void ServerApp::broadcastDeviceCatalog()
+{
+    QString error;const QJsonObject catalog=m_database.deviceCatalog(&error);if(!error.isEmpty()){qWarning()<<"catalog sync failed"<<error;return;}
+    QSet<QSslSocket *> sockets;for(QSslSocket *socket:m_chargerSockets)sockets.insert(socket);
+    for(QSslSocket *socket:sockets)if(socket&&socket->isEncrypted())send(socket,Protocol::request("device.catalog.sync",catalog,QUuid::createUuid().toString(QUuid::WithoutBraces)));
+}
 
 QSslSocket *ServerApp::connectedDevice(const QString &chargerCode) const
 {
@@ -166,6 +188,8 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
         if(socket->property("role").toString()!="user")error="请先登录";else data=m_database.recharge(socket->property("userId").toLongLong(),p.value("amount").toDouble(),p.value("password").toString(),&error);
     }else if(type=="user.orders"){
         if(socket->property("role").toString()!="user")error="请先登录";else data={{"items",m_database.userOrders(socket->property("userId").toLongLong(),&error)}};
+    }else if(type=="user.charge.live"){
+        if(socket->property("role").toString()!="user")error="请先登录";else data=m_database.userChargeLive(socket->property("userId").toLongLong(),&error);
     }else if(type=="auth.admin"){
         if(m_database.loginAdmin(p.value("username").toString(),p.value("password").toString(),&error)){socket->setProperty("role","admin");data={{"username",p.value("username")}};}
     }else if(type=="station.list"){
@@ -222,6 +246,7 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
                 m_chargerSockets[code]=socket;codes.append(code);
             }
             m_socketChargers[socket]=codes;data={{"registered",codes.size()},{"syncRequired",true}};
+            QTimer::singleShot(0,this,&ServerApp::broadcastDeviceCatalog);
         }
     }else if(type=="device.sync"){
         if(socket->property("role").toString()!="device")error="设备未注册";
@@ -278,17 +303,17 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
     }else if(type=="admin.maintenance.status"){
         if(m_database.updateMaintenanceStatus(p.value("maintenanceId").toVariant().toLongLong(),p.value("status").toString(),p.value("result").toString(),&error))data={{"updated",true}};
     }else if(type=="admin.station.add"){
-        data=m_database.addStation(p,&error);
+        data=m_database.addStation(p,&error);if(error.isEmpty())broadcastDeviceCatalog();
     }else if(type=="admin.station.update"){
-        if(m_database.updateStation(p,&error))data={{"updated",true}};
+        if(m_database.updateStation(p,&error)){data={{"updated",true}};broadcastDeviceCatalog();}
     }else if(type=="admin.station.delete"){
-        if(m_database.deleteStation(p.value("stationId").toVariant().toLongLong(),&error))data={{"deleted",true}};
+        if(m_database.deleteStation(p.value("stationId").toVariant().toLongLong(),&error)){data={{"deleted",true}};broadcastDeviceCatalog();}
     }else if(type=="admin.charger.add"){
-        data=m_database.addCharger(p,&error);
+        data=m_database.addCharger(p,&error);if(error.isEmpty())broadcastDeviceCatalog();
     }else if(type=="admin.charger.update"){
-        if(m_database.updateCharger(p,&error))data={{"updated",true}};
+        if(m_database.updateCharger(p,&error)){data={{"updated",true}};broadcastDeviceCatalog();}
     }else if(type=="admin.charger.delete"){
-        if(m_database.deleteCharger(p.value("chargerId").toVariant().toLongLong(),&error))data={{"deleted",true}};
+        if(m_database.deleteCharger(p.value("chargerId").toVariant().toLongLong(),&error)){data={{"deleted",true}};broadcastDeviceCatalog();}
     }else if(type=="admin.account.add"){
         const QString password=p.value("password").toString();
         if(password!=p.value("confirmPassword").toString())error="两次密码输入不一致";

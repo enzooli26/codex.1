@@ -82,6 +82,16 @@
         </spacer>
        </item>
        <item>
+        <widget class="QPushButton" name="refreshBtn">
+         <property name="text"><string>刷新</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="toggleConnBtn">
+         <property name="text"><string>重新连接</string></property>
+        </widget>
+       </item>
+       <item>
         <widget class="QLabel" name="titleLabel">
          <property name="text">
           <string>充电桩模拟器</string>

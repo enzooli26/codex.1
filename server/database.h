@@ -14,9 +14,11 @@ public:
     QJsonObject loginUser(const QString &phone, const QString &password, QString *error);
     QJsonObject recharge(qint64 userId, double amount, const QString &password, QString *error);
     QJsonArray userOrders(qint64 userId, QString *error);
+    QJsonObject userChargeLive(qint64 userId, QString *error);
     bool loginAdmin(const QString &username, const QString &password, QString *error);
     bool registerAdmin(const QString &username, const QString &password, QString *error);
     QJsonArray stationList(QString *error);
+    QJsonObject deviceCatalog(QString *error);
     QJsonObject createReservation(qint64 userId, qint64 chargerId, QString *error);
     bool cancelReservation(qint64 userId, qint64 reservationId, const QString &reason, QString *error);
     QJsonObject startCharge(qint64 userId, qint64 chargerId, const QString &mode,

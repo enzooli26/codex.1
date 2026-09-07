@@ -95,6 +95,27 @@ QJsonArray EdgeDatabase::chargersByStation(int stationId, QString *error)
     return result;
 }
 
+bool EdgeDatabase::syncCatalog(const QJsonArray &stations,const QJsonArray &chargers,QString *error)
+{
+    if(!m_db.transaction()){if(error)*error=m_db.lastError().text();return false;}
+    QSqlQuery insertStation(m_db),updateStation(m_db),insertCharger(m_db),updateCharger(m_db);
+    insertStation.prepare("INSERT OR IGNORE INTO stations(id,name,status) VALUES(?,?,?)");
+    updateStation.prepare("UPDATE stations SET name=?,status=? WHERE id=?");
+    for(const auto &value:stations){const auto s=value.toObject();const qint64 id=s.value("id").toVariant().toLongLong();
+        insertStation.bindValue(0,id);insertStation.bindValue(1,s.value("name").toString());insertStation.bindValue(2,s.value("status").toString());
+        if(!insertStation.exec()){m_db.rollback();if(error)*error=insertStation.lastError().text();return false;}
+        updateStation.bindValue(0,s.value("name").toString());updateStation.bindValue(1,s.value("status").toString());updateStation.bindValue(2,id);
+        if(!updateStation.exec()){m_db.rollback();if(error)*error=updateStation.lastError().text();return false;}}
+    insertCharger.prepare("INSERT OR IGNORE INTO chargers(station_id,code,type,rated_power,status,last_seen) VALUES(?,?,?,?,?,?)");
+    updateCharger.prepare("UPDATE chargers SET station_id=?,type=?,rated_power=?,status=CASE WHEN status='CHARGING' THEN status ELSE ? END WHERE code=?");
+    for(const auto &value:chargers){const auto c=value.toObject();const QString code=c.value("code").toString();
+        insertCharger.bindValue(0,c.value("stationId").toVariant());insertCharger.bindValue(1,code);insertCharger.bindValue(2,c.value("type").toString());insertCharger.bindValue(3,c.value("ratedPower").toDouble());insertCharger.bindValue(4,c.value("status").toString());insertCharger.bindValue(5,utcNow());
+        if(!insertCharger.exec()){m_db.rollback();if(error)*error=insertCharger.lastError().text();return false;}
+        updateCharger.bindValue(0,c.value("stationId").toVariant());updateCharger.bindValue(1,c.value("type").toString());updateCharger.bindValue(2,c.value("ratedPower").toDouble());updateCharger.bindValue(3,c.value("status").toString());updateCharger.bindValue(4,code);
+        if(!updateCharger.exec()){m_db.rollback();if(error)*error=updateCharger.lastError().text();return false;}}
+    if(!m_db.commit()){if(error)*error=m_db.lastError().text();return false;}return true;
+}
+
 QJsonObject EdgeDatabase::activeOrderForCharger(const QString &chargerCode, QString *error)
 {
     QSqlQuery q(m_db);
@@ -131,8 +152,8 @@ bool EdgeDatabase::updateOrderDisconnectedAt(qint64 orderId, const QString &time
 QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
 {
     QSqlQuery q(m_db);
-    q.prepare("SELECT o.id,o.central_order_id,o.user_id,o.charger_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,o.end_at "
-              "FROM charge_orders o WHERE o.payment_status='PENDING' ORDER BY o.id ASC");
+    q.prepare("SELECT o.id,o.central_order_id,o.user_id,o.charger_id,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,o.end_at,c.code "
+              "FROM charge_orders o JOIN chargers c ON c.id=o.charger_id WHERE o.payment_status='PENDING' ORDER BY o.id ASC");
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}
     QJsonArray result;
     while(q.next()){
@@ -140,7 +161,8 @@ QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
             {"id",q.value(0).toLongLong()},{"centralOrderId",q.value(1).toLongLong()},{"userId",q.value(2).toLongLong()},
             {"chargerId",q.value(3).toLongLong()},{"status",q.value(4).toString()},{"mode",q.value(5).toString()},
             {"target",q.value(6).toDouble()},{"energy",q.value(7).toDouble()},{"duration",q.value(8).toInt()},
-            {"amount",q.value(9).toDouble()},{"startAt",q.value(10).toString()},{"endAt",q.value(11).toString()}
+            {"amount",q.value(9).toDouble()},{"startAt",q.value(10).toString()},{"endAt",q.value(11).toString()},
+            {"chargerCode",q.value(12).toString()}
         });
     }
     return result;

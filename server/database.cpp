@@ -195,18 +195,45 @@ QJsonArray Database::stationList(QString *error)
 {
     QSqlQuery q(m_db);
     const char *sql = "SELECT s.id,s.name,s.address,s.longitude,s.latitude,s.base_price,"
-                      "COUNT(c.id),SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END),"
-                      "MIN(CASE WHEN c.status='IDLE' THEN c.id END) "
-                      "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
-                      "GROUP BY s.id ORDER BY s.id";
+                      "c.id,c.code,c.type,c.rated_power,c.status "
+                      "FROM stations s JOIN chargers c ON c.station_id=s.id "
+                      "WHERE s.status='ONLINE' ORDER BY s.id,c.id";
     if (!q.exec(sql)) { if (error) *error=q.lastError().text(); return {}; }
     QJsonArray result;
     while(q.next()) result.append(QJsonObject{{"id",q.value(0).toLongLong()},{"name",q.value(1).toString()},
         {"address",q.value(2).toString()},{"longitude",q.value(3).toDouble()},
         {"latitude",q.value(4).toDouble()},{"price",q.value(5).toDouble()},
-        {"total",q.value(6).toInt()},{"idle",q.value(7).toInt()},
-        {"chargerId",q.value(8).toLongLong()}});
+        {"chargerId",q.value(6).toLongLong()},{"chargerCode",q.value(7).toString()},
+        {"chargerType",q.value(8).toString()},{"ratedPower",q.value(9).toDouble()},
+        {"chargerStatus",q.value(10).toString()},{"idle",q.value(10).toString()=="IDLE"?1:0},{"total",1}});
     return result;
+}
+
+QJsonObject Database::userChargeLive(qint64 userId,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare(
+        "SELECT o.id,o.mode,o.target,o.energy,o.duration,o.amount,c.code,c.rated_power,s.base_price,"
+        "COALESCE(t.voltage,0),COALESCE(t.current,0),COALESCE(t.power,0),COALESCE(t.soc,0),COALESCE(t.sampled_at,'--') "
+        "FROM charge_orders o JOIN chargers c ON c.id=o.charger_id JOIN stations s ON s.id=c.station_id "
+        "LEFT JOIN telemetry t ON t.id=(SELECT id FROM telemetry WHERE charger_id=c.id ORDER BY sampled_at DESC LIMIT 1) "
+        "WHERE o.user_id=? AND o.status='CHARGING' ORDER BY o.id DESC LIMIT 1");q.addBindValue(userId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}if(!q.next())return{{"charging",false}};
+    const QString mode=q.value(1).toString();const double target=q.value(2).toDouble(),energy=q.value(3).toDouble(),amount=q.value(5).toDouble();const int duration=q.value(4).toInt();
+    const double ratedPower=q.value(7).toDouble(),price=q.value(8).toDouble(),livePower=q.value(11).toDouble();const double estimatePower=livePower>0.01?livePower:ratedPower;int remaining=0;
+    if(mode=="TIME")remaining=qMax(0,qRound(target*60.0)-duration);
+    else if(mode=="ENERGY"&&estimatePower>0)remaining=qMax(0,qRound((target-energy)/estimatePower*3600.0));
+    else if(mode=="AMOUNT"&&price>0&&estimatePower>0)remaining=qMax(0,qRound((target-amount)/price/estimatePower*3600.0));
+    return{{"charging",true},{"orderId",q.value(0).toLongLong()},{"mode",mode},{"target",target},{"energy",energy},{"duration",duration},{"amount",amount},{"charger",q.value(6).toString()},{"voltage",q.value(9).toDouble()},{"current",q.value(10).toDouble()},{"power",livePower},{"soc",q.value(12).toDouble()},{"sampledAt",q.value(13).toString()},{"remainingSeconds",remaining}};
+}
+
+QJsonObject Database::deviceCatalog(QString *error)
+{
+    QJsonArray stations,chargers;QSqlQuery s(m_db),c(m_db);
+    if(!s.exec("SELECT id,name,status FROM stations ORDER BY id")){if(error)*error=s.lastError().text();return{};}
+    while(s.next())stations.append(QJsonObject{{"id",s.value(0).toLongLong()},{"name",s.value(1).toString()},{"status",s.value(2).toString()}});
+    if(!c.exec("SELECT id,station_id,code,type,rated_power,status FROM chargers ORDER BY id")){if(error)*error=c.lastError().text();return{};}
+    while(c.next())chargers.append(QJsonObject{{"id",c.value(0).toLongLong()},{"stationId",c.value(1).toLongLong()},{"code",c.value(2).toString()},{"type",c.value(3).toString()},{"ratedPower",c.value(4).toDouble()},{"status",c.value(5).toString()}});
+    return{{"stations",stations},{"chargers",chargers}};
 }
 
 QJsonObject Database::createReservation(qint64 userId, qint64 chargerId, QString *error)
@@ -433,8 +460,8 @@ QJsonArray Database::adminStations(QString *error)
 
 QJsonArray Database::adminChargers(QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("SELECT c.id,c.code,s.name,c.type,c.rated_power,c.status,c.total_sessions,c.total_duration,COALESCE(c.last_seen,'--'),CASE WHEN c.status='FAULT' THEN '异常' WHEN c.status='OFFLINE' THEN '离线' WHEN c.last_seen IS NULL THEN '未上报' WHEN (julianday('now')-julianday(c.last_seen))*86400>120 THEN '心跳超时' ELSE '健康' END,CASE WHEN c.status='FAULT' THEN 20 WHEN c.status='OFFLINE' THEN 0 WHEN c.last_seen IS NULL THEN 60 WHEN (julianday('now')-julianday(c.last_seen))*86400>120 THEN 40 ELSE 100 END FROM chargers c JOIN stations s ON s.id=c.station_id ORDER BY c.id DESC");
-    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"code",q.value(1).toString()},{"station",q.value(2).toString()},{"chargerType",q.value(3).toString()},{"power",q.value(4).toDouble()},{"status",q.value(5).toString()},{"sessions",q.value(6).toInt()},{"duration",q.value(7).toInt()},{"lastSeen",q.value(8).toString()},{"health",QString("%1 (%2)").arg(q.value(9).toString()).arg(q.value(10).toInt())},{"healthScore",q.value(10).toInt()}});return a;
+    QSqlQuery q(m_db);q.prepare("SELECT c.id,c.code,s.name,c.type,c.rated_power,c.status,c.total_sessions,c.total_duration,COALESCE(c.last_seen,'--'),CASE WHEN c.status='FAULT' THEN '异常' WHEN c.status='OFFLINE' THEN '离线' WHEN c.last_seen IS NULL THEN '未上报' WHEN (julianday('now')-julianday(c.last_seen))*86400>120 THEN '心跳超时' ELSE '健康' END,CASE WHEN c.status='FAULT' THEN 20 WHEN c.status='OFFLINE' THEN 0 WHEN c.last_seen IS NULL THEN 60 WHEN (julianday('now')-julianday(c.last_seen))*86400>120 THEN 40 ELSE 100 END,COALESCE(t.voltage,0),COALESCE(t.current,0),COALESCE(t.power,0),COALESCE(t.soc,0) FROM chargers c JOIN stations s ON s.id=c.station_id LEFT JOIN telemetry t ON t.id=(SELECT id FROM telemetry WHERE charger_id=c.id ORDER BY sampled_at DESC LIMIT 1) ORDER BY c.id DESC");
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"code",q.value(1).toString()},{"station",q.value(2).toString()},{"chargerType",q.value(3).toString()},{"power",q.value(4).toDouble()},{"status",q.value(5).toString()},{"sessions",q.value(6).toInt()},{"duration",q.value(7).toInt()},{"lastSeen",q.value(8).toString()},{"health",QString("%1 (%2)").arg(q.value(9).toString()).arg(q.value(10).toInt())},{"healthScore",q.value(10).toInt()},{"voltage",q.value(11).toDouble()},{"current",q.value(12).toDouble()},{"livePower",q.value(13).toDouble()},{"soc",q.value(14).toDouble()}});return a;
 }
 
 QJsonArray Database::adminOrders(const QString &statusFilter,const QString &keyword,QString *error)

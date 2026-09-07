@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QPointer>
 #include <QTimer>
+#include <QSet>
 #include "database.h"
 class QSslSocket;
 
@@ -45,6 +46,8 @@ private:
     void failPendingForSocket(QSslSocket *socket, const QString &reason);
     QSslSocket *connectedDevice(const QString &chargerCode) const;
     void send(QSslSocket *socket, const QJsonObject &message);
+    void broadcastDeviceCatalog();
+    void scheduleDecode(QSslSocket *socket);
     struct PendingCommand {
         QString action;
         QPointer<QSslSocket> client;
@@ -56,6 +59,7 @@ private:
     TlsTcpServer m_server;
     Database m_database;
     QHash<QSslSocket *, QByteArray> m_buffers;
+    QSet<QSslSocket *> m_decodeBusy;
     QHash<QString,QSslSocket *> m_chargerSockets;
     QHash<QSslSocket *,QStringList> m_socketChargers;
     QHash<qint64,QSslSocket *> m_userSockets;
