@@ -19,11 +19,13 @@ public:
     void start(const QString &host,quint16 port);
     EdgeDatabase &database(){return m_database;}
     bool isRegistered() const {return m_registered;}
+    bool isDisconnected() const {return m_disconnected;}
 signals:
     void connectionChanged(bool connected);
     void chargerStatusChanged(const QString &code, const QString &status);
     void orderChanged(const QString &chargerCode, const QJsonObject &order);
     void syncCompleted();
+    void disconnectedStateChanged(bool disconnected);
 public slots:
     void stopOrder(const QString &chargerCode);
 private slots:
@@ -32,19 +34,27 @@ private slots:
     void heartbeat();
     void telemetry();
     void reconnect();
+    void onHeartbeatTimeout();
 private:
     void dispatch(const QJsonObject &message);
     void send(const QJsonObject &message);
     void sendRequest(const QString &type,const QJsonObject &payload);
     void sendSync();
+    void checkDisconnection();
+    void syncPendingOrders();
     QStringList m_codes;
     QString m_databasePath;
     QString m_token;
     QSslSocket m_socket;
     QByteArray m_buffer;
     QTimer m_heartbeat;
+    QTimer m_heartbeatTimer;
+    QTimer m_reconnectTimer;
     QTimer m_telemetry;
+    int m_heartbeatFailures = 0;
+    bool m_registered=false;
+    bool m_disconnected = false;
+    QString m_lastHeartbeatTime;
     EdgeDatabase m_database;
     QHash<QString,double> m_soc;
-    bool m_registered=false;
 };

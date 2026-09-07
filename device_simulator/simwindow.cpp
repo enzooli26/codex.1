@@ -20,8 +20,26 @@ SimWindow::SimWindow(Simulator *simulator, QWidget *parent)
     connect(m_simulator, &Simulator::connectionChanged, this, &SimWindow::onConnectionChanged);
     connect(m_simulator, &Simulator::chargerStatusChanged, this, &SimWindow::onChargerStatusChanged);
     connect(m_simulator, &Simulator::orderChanged, this, &SimWindow::onOrderChanged);
+    connect(m_simulator, &Simulator::disconnectedStateChanged, this, &SimWindow::onDisconnectedChanged);
+    qDebug() << "SimWindow constructed";
     buildStationList();
+    qDebug() << "buildStationList called from constructor";
     onConnectionChanged(m_simulator->isRegistered());
+    qDebug() << "onConnectionChanged called from constructor";
+}
+
+void SimWindow::onDisconnectedChanged(bool disconnected)
+{
+    if(disconnected){
+        ui->connLabel->setText("⚠️ 网络异常");
+        ui->connLabel->setStyleSheet("color:#e66b7b;font-weight:600;font-size:14px;");
+    } else {
+        // 重连后刷新所有数据
+        buildStationList();
+        if(m_stationButtons.contains(m_currentStationId)){
+            m_stationButtons[m_currentStationId]->setChecked(true);
+        }
+    }
 }
 
 SimWindow::~SimWindow()
@@ -31,17 +49,28 @@ SimWindow::~SimWindow()
 
 void SimWindow::buildStationList()
 {
+    qDebug() << "DEBUG: buildStationList() called";
     QString error;
     const QJsonArray stations = m_simulator->database().stations(&error);
     if(!error.isEmpty()){
         QMessageBox::warning(this, "错误", "加载充电站列表失败: " + error);
         return;
     }
+    qDebug() << "DEBUG: Found" << stations.size() << "stations in database";
+    
+    // 清除旧的按钮（只清除现有按钮）
     QLayoutItem *item;
+    int itemsRemoved = 0;
     while((item = ui->scrollLayout->takeAt(0)) != nullptr){
-        if(item->widget()) delete item->widget();
+        if(item->widget()) {
+            delete item->widget();
+            itemsRemoved++;
+        }
         delete item;
     }
+    qDebug() << "DEBUG: Removed" << itemsRemoved << "old items from scrollLayout";
+    
+    // 添加新的按钮
     for(int i=0;i<stations.size();++i){
         const QJsonObject s = stations[i].toObject();
         const int id = s.value("id").toInt();
@@ -62,10 +91,17 @@ void SimWindow::buildStationList()
             }
             onStationClicked(id);
         });
-        if(i==0){
-            btn->setChecked(true);
-            m_currentStationId = id;
-            onStationClicked(id);
+        qDebug() << "DEBUG: Added station button" << id << name;
+    }
+    
+    // 选择第一个站点
+    if(stations.size() > 0 && !m_stationButtons.isEmpty()){
+        const int firstId = stations[0].toObject().value("id").toInt();
+        if(m_stationButtons.contains(firstId)) {
+            m_stationButtons[firstId]->setChecked(true);
+            m_currentStationId = firstId;
+            qDebug() << "DEBUG: Selected first station" << firstId;
+            onStationClicked(m_currentStationId);
         }
     }
 }
@@ -200,6 +236,7 @@ void SimWindow::updateChargerCard(const QString &code)
 
 void SimWindow::onConnectionChanged(bool connected)
 {
+    qDebug() << "onConnectionChanged called, connected =" << connected;
     if(connected){
         ui->connLabel->setText("🔒 已连接");
         ui->connLabel->setStyleSheet("color:#2ca777;font-weight:600;font-size:14px;");
@@ -213,12 +250,6 @@ void SimWindow::onChargerStatusChanged(const QString &code, const QString &)
 {
     if(m_chargerCards.contains(code)){
         updateChargerCard(code);
-    }
-    if(!m_stationButtons.isEmpty()){
-        buildStationList();
-        if(m_stationButtons.contains(m_currentStationId)){
-            m_stationButtons[m_currentStationId]->setChecked(true);
-        }
     }
 }
 

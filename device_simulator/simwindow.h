@@ -24,6 +24,7 @@ private slots:
     void onChargerStatusChanged(const QString &code, const QString &status);
     void onOrderChanged(const QString &chargerCode, const QJsonObject &order);
     void onStopClicked(const QString &chargerCode);
+    void onDisconnectedChanged(bool disconnected);
 private:
     void buildStationList();
     void buildChargerList(int stationId);
