@@ -28,3 +28,5 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+config/app.ini
+config/server-key.pem

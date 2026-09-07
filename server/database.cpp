@@ -432,8 +432,8 @@ QJsonArray Database::adminStations(QString *error)
 
 QJsonArray Database::adminChargers(QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("SELECT c.id,c.code,s.name,c.type,c.rated_power,c.status,c.total_sessions,c.total_duration,COALESCE(c.last_seen,'--') FROM chargers c JOIN stations s ON s.id=c.station_id ORDER BY c.id DESC");
-    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"code",q.value(1).toString()},{"station",q.value(2).toString()},{"chargerType",q.value(3).toString()},{"power",q.value(4).toDouble()},{"status",q.value(5).toString()},{"sessions",q.value(6).toInt()},{"duration",q.value(7).toInt()},{"lastSeen",q.value(8).toString()}});return a;
+    QSqlQuery q(m_db);q.prepare("SELECT c.id,c.code,s.name,c.type,c.rated_power,c.status,c.total_sessions,c.total_duration,COALESCE(c.last_seen,'--'),t.voltage,t.current,t.power FROM chargers c JOIN stations s ON s.id=c.station_id LEFT JOIN telemetry t ON t.id=(SELECT id FROM telemetry WHERE charger_id=c.id ORDER BY sampled_at DESC LIMIT 1) ORDER BY c.id DESC");
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"code",q.value(1).toString()},{"station",q.value(2).toString()},{"chargerType",q.value(3).toString()},{"power",q.value(4).toDouble()},{"status",q.value(5).toString()},{"sessions",q.value(6).toInt()},{"duration",q.value(7).toInt()},{"lastSeen",q.value(8).toString()},{"voltage",q.value(9).toDouble()},{"current",q.value(10).toDouble()},{"livePower",q.value(11).toDouble()}});return a;
 }
 
 QJsonArray Database::adminOrders(QString *error)

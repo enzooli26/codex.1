@@ -30,6 +30,7 @@ void Simulator::start(const QString &host,quint16 port)
     QString error;if(!SecureConnect::connectToServer(&m_socket,host,port,&error))qWarning()<<error;
 }
 
+//断联
 void Simulator::disconnectFromServer()
 {
     m_manualDisconnect=true;
@@ -45,6 +46,7 @@ void Simulator::disconnectFromServer()
     emit disconnectedStateChanged(m_disconnected);
 }
 
+//连接
 void Simulator::connectToServer()
 {
     m_manualDisconnect=false;
@@ -54,6 +56,7 @@ void Simulator::connectToServer()
     if(!SecureConnect::connectToServer(&m_socket,host,port,&error))qWarning()<<error;
 }
 
+// 重新建立连接并完成注册后，调用 syncPendingOrders() 进行断联订单同步
 void Simulator::connected()
 {
     m_registered=false;m_heartbeat.start();m_telemetry.start();m_heartbeatTimer.start();
@@ -65,6 +68,7 @@ void Simulator::connected()
     emit disconnectedStateChanged(m_disconnected);
 }
 
+// 当与服务器意外断开时自动触发重连，并处理断联期间产生的订单状态
 void Simulator::reconnect()
 {
     m_registered=false;m_heartbeat.stop();m_heartbeatTimer.stop();
@@ -82,6 +86,7 @@ void Simulator::reconnect()
     });
 }
 
+// 心跳超时检测，累计三次超时则认为网络断开，触发断联处理
 void Simulator::onHeartbeatTimeout()
 {
     m_heartbeatFailures++;
@@ -110,6 +115,7 @@ void Simulator::checkDisconnection()
     }
 }
 
+//心跳函数，向服务器发送心跳包
 void Simulator::heartbeat()
 {
     if(!m_registered)return;
@@ -118,6 +124,7 @@ void Simulator::heartbeat()
     for(const QString &code:m_codes){
         QString error;
         const QJsonObject active = m_database.activeOrderForCharger(code, &error);
+        //若当前存在活跃充电桩，则携带所有活跃充电桩的数据
         if(!active.isEmpty()){
             orders.append(QJsonObject{
                 {"chargerCode", code},
@@ -131,14 +138,18 @@ void Simulator::heartbeat()
     m_heartbeatFailures = 0; // 重置失败计数
 }
 
+//模拟充电信号
 void Simulator::telemetry()
 {
     bool completed=false;
     for(const QString &code:m_codes){
         QString error;const QString status=m_database.chargerStatus(code,&error);if(status!="CHARGING")continue;
+        //设置电压为380V左右浮动
         const double voltage=380.0+QRandomGenerator::global()->bounded(500)/100.0;
         const double ratedPower=m_database.chargerRatedPower(code,&error);
+        //设置实际功率为设定功率的85%-100%，随机数
         const double power=ratedPower*(0.85+QRandomGenerator::global()->bounded(151)/1000.0);
+        //根据生成的随机功率模拟电流
         const double current=power*1000.0/voltage;m_soc[code]=qMin(100.0,m_soc.value(code,35.0)+0.05);
         const QJsonObject order=m_database.tick(code,voltage,current,power,m_soc.value(code),&error);
         if(!error.isEmpty()){qWarning()<<error;continue;}
@@ -149,17 +160,21 @@ void Simulator::telemetry()
         }
         if(order.value("status").toString()=="SYNC_PENDING")completed=true;
     }
+    //传输
     if(completed&&m_registered)sendSync();
 }
 
 void Simulator::send(const QJsonObject &message){if(m_socket.isEncrypted())m_socket.write(Protocol::encode(message));}
 void Simulator::sendRequest(const QString &type,const QJsonObject &payload){send(Protocol::request(type,payload,QUuid::createUuid().toString(QUuid::WithoutBraces)));}
+
+// 发送同步请求，将本地的待同步订单发送至服务器。在通讯正常的情况下直接执行。
 void Simulator::sendSync()
 {
     if(!m_registered)return;QString error;const QJsonArray orders=m_database.pendingOrders(&error);
     if(error.isEmpty())sendRequest("device.sync",{{"orders",orders}});else qWarning()<<error;
 }
 
+// 重连成功后，同步断联期间产生的所有待支付订单
 void Simulator::syncPendingOrders()
 {
     if(!m_registered)return;
@@ -168,6 +183,7 @@ void Simulator::syncPendingOrders()
     if(!error.isEmpty()){qWarning()<<error;return;}
     if(orders.isEmpty())return;
     QJsonArray syncOrders;
+    //遍历，将所有标记为未支付的订单传输给服务器
     for(int i=0;i<orders.size();++i){
         const QJsonObject o=orders[i].toObject();
         if(o.value("status").toString()!="SYNC_PENDING")continue;
@@ -185,6 +201,7 @@ void Simulator::syncPendingOrders()
     sendRequest("device.sync",{{"orders",syncOrders}});
 }
 
+//用户手动停止充电，获取当前充电桩对应的订单，停止该订单
 void Simulator::stopOrder(const QString &chargerCode)
 {
     QString error;
@@ -199,6 +216,7 @@ void Simulator::stopOrder(const QString &chargerCode)
     if(m_registered)sendSync();
 }
 
+//负责解析从服务器接收到的 JSON 消息，根据 type 字段执行不同的业务逻辑，并返回响应
 void Simulator::dispatch(const QJsonObject &message)
 {
     const QString type=message.value("type").toString();const QJsonObject payload=message.value("payload").toObject();QString error;QJsonObject data;

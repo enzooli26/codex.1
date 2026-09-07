@@ -236,6 +236,7 @@ void SimWindow::updateChargerCard(const QString &code)
     }
 }
 
+//处理网络变化，当断网重连的时候根据信息恢复站点
 void SimWindow::onConnectionChanged(bool connected)
 {
     qDebug() << "onConnectionChanged called, connected =" << connected;
