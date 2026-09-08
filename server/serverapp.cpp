@@ -181,6 +181,19 @@ void ServerApp::onDatabaseResult(qint64 requestId, int code, const QJsonObject &
     // 发送响应
     send(socket, Protocol::response(pending.originalMessage, code,
                                     error.isEmpty() ? "ok" : error, data));
+
+    // 管理员添加充电桩后，向所有模拟器推送
+    if(pending.originalMessage.value("type").toString() == "admin.charger.add" && error.isEmpty()) {
+        const QJsonObject payload = pending.originalMessage.value("payload").toObject();
+        QJsonObject push = {{"code", data.value("code").toString()},
+                            {"type", data.value("type").toString()},
+                            {"ratedPower", data.value("ratedPower").toDouble()},
+                            {"stationName", data.value("stationName").toString()}};
+        for(auto it = m_chargerSockets.constBegin(); it != m_chargerSockets.constEnd(); ++it) {
+            send(it.value(), Protocol::notification("device.charger.added", push));
+        }
+        qInfo() << "Pushed new charger" << data.value("code").toString() << "to" << m_chargerSockets.size() << "simulator(s)";
+    }
 }
 
 void ServerApp::acceptConnections()

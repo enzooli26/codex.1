@@ -236,3 +236,29 @@ double EdgeDatabase::chargerRatedPower(const QString &chargerCode,QString *error
 {
     QSqlQuery q(m_db);q.prepare("SELECT rated_power FROM chargers WHERE code=?");q.addBindValue(chargerCode);if(!q.exec()||!q.next()){if(error)*error="本地充电桩不存在";return 0;}return q.value(0).toDouble();
 }
+
+bool EdgeDatabase::addChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error)
+{
+    // 查找或创建站点
+    qint64 stationId=-1;
+    QSqlQuery findStation(m_db);findStation.prepare("SELECT id FROM stations WHERE name=?");findStation.addBindValue(stationName);
+    if(findStation.exec()&&findStation.next()){stationId=findStation.value(0).toLongLong();}
+    else{
+        QSqlQuery createStation(m_db);createStation.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");createStation.addBindValue(stationName);
+        if(!createStation.exec()){if(error)*error=createStation.lastError().text();return false;}
+        QSqlQuery getId(m_db);getId.prepare("SELECT id FROM stations WHERE name=?");getId.addBindValue(stationName);
+        if(getId.exec()&&getId.next())stationId=getId.value(0).toLongLong();
+    }
+    // 插入充电桩（INSERT OR IGNORE 避免重复）
+    QSqlQuery add(m_db);add.prepare("INSERT OR IGNORE INTO chargers(code,type,rated_power,station_id,status,last_seen) VALUES(?,?,?,?,?,?)");
+    add.bindValue(0,code);add.bindValue(1,type.isEmpty()?"FAST":type);add.bindValue(2,ratedPower>0?ratedPower:120);add.bindValue(3,stationId);add.bindValue(4,"IDLE");add.bindValue(5,utcNow());
+    if(!add.exec()){if(error)*error=add.lastError().text();return false;}
+    return true;
+}
+
+bool EdgeDatabase::removeChargerByCode(const QString &code,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("DELETE FROM chargers WHERE code=?");q.addBindValue(code);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return true;
+}

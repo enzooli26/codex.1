@@ -67,4 +67,14 @@ inline QJsonObject response(const QJsonObject &request, int code,
             {QStringLiteral("data"), data}};
 }
 
+inline QJsonObject notification(const QString &type, const QJsonObject &payload)
+{
+    return {{QStringLiteral("version"), 1},
+            {QStringLiteral("type"), type},
+            {QStringLiteral("requestId"), QString()},
+            {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch()},
+            {QStringLiteral("code"), 0},
+            {QStringLiteral("data"), payload}};
+}
+
 }

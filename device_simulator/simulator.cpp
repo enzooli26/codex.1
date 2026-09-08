@@ -276,6 +276,27 @@ void Simulator::dispatch(const QJsonObject &message)
             }
         }
         return;
+    }else if(type=="device.charger.added"){
+        m_database.addChargerFromServer(
+            payload.value("code").toString(),
+            payload.value("type").toString(),
+            payload.value("ratedPower").toDouble(),
+            payload.value("stationName").toString(),
+            &error);
+        if(error.isEmpty()){
+            emit chargerAdded(payload.value("code").toString());
+            qInfo() << "New charger synced from server:" << payload.value("code").toString();
+        }else{
+            qWarning() << "Failed to sync charger:" << error;
+        }
+        return;
+    }else if(type=="device.charger.removed"){
+        m_database.removeChargerByCode(payload.value("code").toString(), &error);
+        if(error.isEmpty()){
+            emit chargerRemoved(payload.value("code").toString());
+            qInfo() << "Charger removed from server:" << payload.value("code").toString();
+        }
+        return;
     }else return;
     send(Protocol::response(message,error.isEmpty()?0:400,error.isEmpty()?"ok":error,data));
 }

@@ -28,6 +28,8 @@ signals:
     void orderChanged(const QString &chargerCode, const QJsonObject &order);
     void syncCompleted();
     void disconnectedStateChanged(bool disconnected);
+    void chargerAdded(const QString &code);
+    void chargerRemoved(const QString &code);
 public slots:
     void stopOrder(const QString &chargerCode);
 private slots:

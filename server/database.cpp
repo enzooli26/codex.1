@@ -524,7 +524,9 @@ QJsonObject Database::addCharger(const QJsonObject &c,QString *error)
     QSqlQuery station(m_db);station.prepare("SELECT id FROM stations WHERE id=?");station.addBindValue(stationId);if(!station.exec()||!station.next()){if(error)*error="所属电站不存在";return{};}
     QSqlQuery q(m_db);q.prepare("INSERT INTO chargers(station_id,code,type,rated_power,status,total_sessions,total_duration) VALUES(?,?,?,?,?,0,0)");q.addBindValue(stationId);q.addBindValue(code);q.addBindValue(type);q.addBindValue(power);q.addBindValue(status);
     if(!q.exec()){if(error)*error=q.lastError().nativeErrorCode()=="2067"?"设备编号已存在":q.lastError().text();return{};}
-    const qint64 id=q.lastInsertId().toLongLong();QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ADD_CHARGER','CHARGER',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return{{"id",id}};
+    const qint64 id=q.lastInsertId().toLongLong();QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ADD_CHARGER','CHARGER',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();
+    QSqlQuery nameQ(m_db);nameQ.prepare("SELECT s.name FROM stations s JOIN chargers c ON c.station_id=s.id WHERE c.id=?");nameQ.addBindValue(id);QString stationName;if(nameQ.exec()&&nameQ.next())stationName=nameQ.value(0).toString();
+    return{{"id",id},{"code",code},{"type",type},{"ratedPower",power},{"stationName",stationName}};
 }
 
 bool Database::updateCharger(const QJsonObject &c,QString *error)
