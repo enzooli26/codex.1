@@ -527,6 +527,7 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
                     send(socket, Protocol::response(message, 0, "ok", data));
                 } else {
                     send(socket, Protocol::response(message, 400, err));
+
                 }
         return;
     }
