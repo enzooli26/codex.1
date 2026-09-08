@@ -32,9 +32,9 @@ private slots:
     void onReconnectTimer();
 
 private:
-    QSslSocket m_socket;
+    QSslSocket *m_socket;
     QByteArray m_buffer;
-    QTimer m_reconnectTimer;
+    QTimer *m_reconnectTimer;
     QString m_host;
     quint16 m_port = 0;
     bool m_manualDisconnect = false;

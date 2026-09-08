@@ -9,18 +9,19 @@ class SimulatorTick : public QObject
 public:
     explicit SimulatorTick(QObject *parent = nullptr);
 
-    void start();
-    void stop();
-    void resetHeartbeatTimer();
-    void resetTelemetryTimer();
-
 signals:
     void heartbeatTick();
     void telemetryTick();
     void heartbeatTimeout();
 
+public slots:
+    void start();
+    void stop();
+    void resetHeartbeatTimer();
+    void resetTelemetryTimer();
+
 private:
-    QTimer m_heartbeatTimer;
-    QTimer m_telemetryTimer;
-    QTimer m_timeoutTimer;
+    QTimer *m_heartbeatTimer;
+    QTimer *m_telemetryTimer;
+    QTimer *m_timeoutTimer;
 };

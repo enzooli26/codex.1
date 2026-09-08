@@ -225,7 +225,8 @@ QJsonArray Database::stationList(QString *error)
 {
     QSqlQuery q(m_db);
     const char *sql = "SELECT s.id,s.name,s.address,s.longitude,s.latitude,s.base_price,"
-                      "COUNT(c.id),SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END) "
+                      "COUNT(c.id),SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END),"
+                      "(SELECT c2.id FROM chargers c2 WHERE c2.station_id=s.id AND c2.status='IDLE' LIMIT 1) "
                       "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
                       "GROUP BY s.id ORDER BY s.id";
     if (!q.exec(sql)) { if (error) *error=q.lastError().text(); return {}; }
@@ -233,7 +234,8 @@ QJsonArray Database::stationList(QString *error)
     while(q.next()) result.append(QJsonObject{{"id",q.value(0).toLongLong()},{"name",q.value(1).toString()},
         {"address",q.value(2).toString()},{"longitude",q.value(3).toDouble()},
         {"latitude",q.value(4).toDouble()},{"price",q.value(5).toDouble()},
-        {"total",q.value(6).toInt()},{"idle",q.value(7).toInt()}});
+        {"total",q.value(6).toInt()},{"idle",q.value(7).toInt()},
+        {"chargerId",q.value(8).isNull()?0:q.value(8).toLongLong()}});
     return result;
 }
 

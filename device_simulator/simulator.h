@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QStringList>
+#include <atomic>
 #include "edgedatabase.h"
 
 class DeviceNetwork;
@@ -22,11 +23,9 @@ public:
 
     bool initialize(QString *error);
     void start(const QString &host, quint16 port);
-    void disconnectFromServer();
-    void connectToServer();
 
-    bool isRegistered() const { return m_registered; }
-    bool isDisconnected() const { return m_disconnected; }
+    bool isRegistered() const { return m_registered.load(); }
+    bool isDisconnected() const { return m_disconnected.load(); }
 
     QJsonArray stations(QString *error);
     QJsonArray chargersByStation(int stationId, QString *error);
@@ -48,6 +47,8 @@ signals:
 
 public slots:
     void stopOrder(const QString &chargerCode);
+    void disconnectFromServer();
+    void connectToServer();
 
 private slots:
     void onNetworkConnected();
@@ -74,8 +75,8 @@ private:
     SimulatorTick *m_tick = nullptr;
 
     int m_heartbeatFailures = 0;
-    bool m_registered = false;
-    bool m_disconnected = false;
+    std::atomic<bool> m_registered{false};
+    std::atomic<bool> m_disconnected{false};
     bool m_manualDisconnect = false;
     QString m_host;
     quint16 m_port = 0;

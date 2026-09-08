@@ -57,7 +57,7 @@ void Simulator::disconnectFromServer()
     m_manualDisconnect = true;
     m_registered = false;
     m_heartbeatFailures = 0;
-    if(m_tick) m_tick->stop();
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "stop", Qt::QueuedConnection);
     emit disconnectNetwork();
     qInfo() << "simulator manually disconnected; local charging continues";
     emit connectionChanged(false);

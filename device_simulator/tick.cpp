@@ -31,7 +31,7 @@ void Simulator::onHeartbeatTick()
         }
     }
     sendRequest("device.heartbeat", {{"status", "connected"}, {"orders", orders}});
-    if(m_tick) m_tick->resetHeartbeatTimer();
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "resetHeartbeatTimer", Qt::QueuedConnection);
     m_heartbeatFailures = 0;
 }
 

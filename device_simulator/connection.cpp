@@ -10,7 +10,7 @@
 void Simulator::onNetworkConnected()
 {
     m_registered = false;
-    if(m_tick) m_tick->start();
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "start", Qt::QueuedConnection);
     QString error;
     QJsonArray chargers;
     QMetaObject::invokeMethod(m_database, [this, &chargers, &error]() {
@@ -26,7 +26,7 @@ void Simulator::onNetworkConnected()
 void Simulator::onNetworkDisconnected()
 {
     m_registered = false;
-    if(m_tick) m_tick->stop();
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "stop", Qt::QueuedConnection);
     qWarning() << "central server disconnected; local charging and metering continue";
     emit connectionChanged(false);
     m_disconnected = true;

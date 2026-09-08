@@ -2,6 +2,7 @@
 #include "ui_simwindow.h"
 #include "simulator.h"
 #include <QPushButton>
+#include <QMetaObject>
 #include <QLabel>
 #include <QFrame>
 #include <QVBoxLayout>
@@ -263,9 +264,9 @@ void SimWindow::onConnectionChanged(bool connected)
 void SimWindow::onToggleConnection()
 {
     if(m_simulator->isRegistered()){
-        m_simulator->disconnectFromServer();
+        QMetaObject::invokeMethod(m_simulator, "disconnectFromServer", Qt::QueuedConnection);
     } else {
-        m_simulator->connectToServer();
+        QMetaObject::invokeMethod(m_simulator, "connectToServer", Qt::QueuedConnection);
     }
 }
 
@@ -291,5 +292,6 @@ void SimWindow::onStopClicked(const QString &chargerCode)
     const auto ret = QMessageBox::question(this, "确认停止",
         QString("确定停止充电桩 %1 的充电吗？\n订单 #%2").arg(chargerCode).arg(active.value("orderId").toVariant().toLongLong()));
     if(ret != QMessageBox::Yes) return;
-    m_simulator->stopOrder(chargerCode);
+    QMetaObject::invokeMethod(m_simulator, "stopOrder", Qt::QueuedConnection,
+        Q_ARG(QString, chargerCode));
 }
