@@ -198,10 +198,6 @@ void UserWindow::onMapReady()
     m_mapJsReady=true;
     jsSetApiKey();
     if(!m_stationCoords.isEmpty()) renderStationMarkers();
-    if(m_hasPendingRoute){
-        m_hasPendingRoute=false;
-        jsDrawRoute(m_pendingRoute.fromLat,m_pendingRoute.fromLng,m_pendingRoute.toLat,m_pendingRoute.toLng,m_pendingRoute.polyline);
-    }
     if(!m_pendingNavRowKey.isEmpty() && !m_mapApiKey.isEmpty()){
         bool ok=false; int row=m_pendingNavRowKey.toInt(&ok);
         if(ok){ m_pendingNavRowKey.clear(); navigateToStation(row); }
@@ -253,17 +249,6 @@ void UserWindow::jsSetApiKey()
     const QString esc=key;
     qDebug() << "[Map] injecting setApiKey, prefix=" << esc.left(6);
     m_navWebView->page()->runJavaScript(QString("setApiKey('%1')").arg(esc));
-}
-void UserWindow::jsDrawRoute(const QString &fromLat, const QString &fromLng, const QString &toLat, const QString &toLng, const QJsonArray &polyline)
-{
-    if(!m_mapJsReady){
-        m_pendingRoute={fromLat,fromLng,toLat,toLng,polyline};
-        m_hasPendingRoute=true;
-        return;
-    }
-    const QString polyJson=polyline.isEmpty()? QStringLiteral("null") : QString::fromUtf8(QJsonDocument(polyline).toJson(QJsonDocument::Compact));
-    const QString js=QString("drawRoute(%1,%2,%3,%4,%5)").arg(fromLat, fromLng, toLat, toLng, polyJson);
-    m_navWebView->page()->runJavaScript(js);
 }
 void UserWindow::jsSetCenter(double lat, double lng, int zoom)
 {
@@ -404,30 +389,22 @@ void UserWindow::handleSuggestionResult(const QJsonObject &data)
 }
 void UserWindow::requestRoute(const QString &fromLat,const QString &fromLng)
 {
-    const QString apiKey=mapApiKey();
+    // 终点：已由三个入口写入 m_navTarget
     const QString toLat=QString::number(m_navTarget.latitude,'f',6);
     const QString toLng=QString::number(m_navTarget.longitude,'f',6);
-    const QString url=QString("https://apis.map.qq.com/ws/direction/v1/driving/?from=%1,%2&to=%3,%4&key=%5")
-        .arg(fromLat,fromLng,toLat,toLng,apiKey);
-    QNetworkRequest request{QUrl(url)};
-    request.setHeader(QNetworkRequest::UserAgentHeader,QStringLiteral("ev-user-client/1.0"));
-    QNetworkReply *reply=m_nam.get(request);
-    connect(reply,&QNetworkReply::finished,this,[this,reply,fromLat,fromLng,toLat,toLng]{
-        reply->deleteLater();
-        if(reply->error()!=QNetworkReply::NoError){ui->navSummaryLabel->setText("网络错误："+reply->errorString());return;}
-        QJsonObject obj=QJsonDocument::fromJson(reply->readAll()).object();
-        if(obj.value("status").toInt()!=0){ui->navSummaryLabel->setText("路线获取失败："+obj.value("message").toString());return;}
-        const QJsonArray routes=obj.value("result").toObject().value("routes").toArray();
-        if(routes.isEmpty()){ui->navSummaryLabel->setText("未找到可用路线");return;}
-        const QJsonObject route=routes.first().toObject();
-        const double distance=route.value("distance").toDouble();
-        const int duration=route.value("duration").toInt();
-        const QString distText=distance>=1000?QString::number(distance/1000.0,'f',1)+" 公里":QString::number(distance,'f',0)+" 米";
-        ui->navSummaryLabel->setText(QString("全程 %1 · 约 %2 分钟（起点为网络定位）").arg(distText).arg(duration));
-        const QJsonArray polyline=route.value("polyline").toArray();
-        jsDrawRoute(fromLat, fromLng, toLat, toLng, polyline);
-    });
+    const QString toName=QString::fromUtf8(QUrl::toPercentEncoding(
+        m_navTarget.name.isEmpty()?QStringLiteral("目的地"):m_navTarget.name));
+    const QString referer=QStringLiteral("charger_pos");
+    const QString url=QString(
+        "https://apis.map.qq.com/uri/v1/routeplan?type=drive"
+        "&from=%1&fromcoord=%2,%3"
+        "&to=%4&tocoord=%5,%6"
+        "&referer=%7")
+        .arg(QStringLiteral("我的位置"), fromLat, fromLng, toName, toLat, toLng, referer);
+    ui->navSummaryLabel->setText("正在打开腾讯地图导航…");
+    QDesktopServices::openUrl(QUrl(url));
 }
+
 void UserWindow::showResult(const QJsonObject &m)
 {
     const QString type=m.value("type").toString();
