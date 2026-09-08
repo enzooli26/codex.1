@@ -103,10 +103,14 @@
            </layout></item>
           </layout>
          </widget></item>
-         <item><widget class="QFrame" name="chargeCard"><property name="class" stdset="0"><string>card</string></property>
-          <layout class="QVBoxLayout" name="chargeCardLayout">
-           <item><widget class="QLabel" name="chargeTitle"><property name="text"><string>开始充电</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
-           <item><layout class="QHBoxLayout" name="chargeOptionsLayout">
+          <item><widget class="QFrame" name="chargeCard"><property name="class" stdset="0"><string>card</string></property>
+           <layout class="QVBoxLayout" name="chargeCardLayout">
+            <item><widget class="QLabel" name="chargeTitle"><property name="text"><string>开始充电</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
+            <item><layout class="QHBoxLayout" name="chargerSelectLayout">
+             <item><widget class="QLabel" name="chargerLabel"><property name="text"><string>选择充电桩</string></property></widget></item>
+             <item><widget class="QComboBox" name="chargerCombo"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property></widget></item>
+            </layout></item>
+            <item><layout class="QHBoxLayout" name="chargeOptionsLayout">
             <item><widget class="QComboBox" name="modeCombo">
              <item><property name="text"><string>按金额</string></property></item>
              <item><property name="text"><string>按电量</string></property></item>

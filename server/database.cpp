@@ -225,8 +225,7 @@ QJsonArray Database::stationList(QString *error)
 {
     QSqlQuery q(m_db);
     const char *sql = "SELECT s.id,s.name,s.address,s.longitude,s.latitude,s.base_price,"
-                      "COUNT(c.id),SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END),"
-                      "MIN(CASE WHEN c.status='IDLE' THEN c.id END) "
+                      "COUNT(c.id),SUM(CASE WHEN c.status='IDLE' THEN 1 ELSE 0 END) "
                       "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
                       "GROUP BY s.id ORDER BY s.id";
     if (!q.exec(sql)) { if (error) *error=q.lastError().text(); return {}; }
@@ -234,8 +233,24 @@ QJsonArray Database::stationList(QString *error)
     while(q.next()) result.append(QJsonObject{{"id",q.value(0).toLongLong()},{"name",q.value(1).toString()},
         {"address",q.value(2).toString()},{"longitude",q.value(3).toDouble()},
         {"latitude",q.value(4).toDouble()},{"price",q.value(5).toDouble()},
-        {"total",q.value(6).toInt()},{"idle",q.value(7).toInt()},
-        {"chargerId",q.value(8).toLongLong()}});
+        {"total",q.value(6).toInt()},{"idle",q.value(7).toInt()}});
+    return result;
+}
+
+QJsonArray Database::chargersByStation(qint64 stationId, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT id,code,type,rated_power,status FROM chargers WHERE station_id=? ORDER BY id");
+    q.addBindValue(stationId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    QJsonArray result;
+    while(q.next()) result.append(QJsonObject{
+        {"id",q.value(0).toLongLong()},
+        {"code",q.value(1).toString()},
+        {"type",q.value(2).toString()},
+        {"rated_power",q.value(3).toDouble()},
+        {"status",q.value(4).toString()}
+    });
     return result;
 }
 
@@ -632,6 +647,15 @@ void Database::doStationList(qint64 requestId)
 
        // 直接发送 operationResult，不经过 sendArrayResult
        emit operationResult(requestId, error.isEmpty() ? 0 : 400, data, error);
+}
+
+void Database::doChargersByStation(qint64 requestId, qint64 stationId)
+{
+    QString error;
+    QJsonArray result = chargersByStation(stationId, &error);
+    QJsonObject data;
+    data["chargers"] = result;
+    emit operationResult(requestId, error.isEmpty() ? 0 : 400, data, error);
 }
 
 void Database::doAdminSummary(qint64 requestId)

@@ -104,7 +104,14 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->statusLabel->setText("🔒 TLS 已连接");ui->statusLabel->setStyleSheet("color:#2ca777;font-weight:600"); requestMapConfig();});
     connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_userId=0;ui->statusLabel->setText("● 已断开");ui->statusLabel->setStyleSheet("color:#d85b6a;font-weight:600");});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
-    connect(ui->stationTable,&QTableWidget::cellClicked,this,[this](int row,int col){if(col==4)navigateToStation(row);});
+    connect(ui->stationTable,&QTableWidget::cellClicked,this,[this](int row,int col){
+        if(col==4){navigateToStation(row);return;}
+        auto *item=ui->stationTable->item(row,0);
+        if(!item)return;
+        m_selectedStationId=item->data(Qt::UserRole).toLongLong();
+        ui->chargerCombo->clear();
+        sendRequest("station.chargers",{{"stationId",m_selectedStationId}});
+    });
     connect(ui->navSearchEdit,&QLineEdit::textChanged,this,[this]{ m_suggestionTimer->start(); });
     connect(ui->navSearchEdit,&QLineEdit::returnPressed,this,[this]{ m_suggestionTimer->stop(); doPlaceSearch(ui->navSearchEdit->text().trimmed()); });
     connect(ui->navSearchButton,&QPushButton::clicked,this,[this]{ m_suggestionTimer->stop(); doPlaceSearch(ui->navSearchEdit->text().trimmed()); });
@@ -140,16 +147,15 @@ void UserWindow::registerUser(){const QString phone=ui->phoneEdit->text().trimme
 void UserWindow::recharge(){if(m_userId<=0){QMessageBox::information(this,"提示","请先登录");return;}if(ui->rechargePasswordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","充值前必须输入登录密码");return;}sendRequest("wallet.recharge",{{"amount",ui->rechargeSpin->value()},{"password",ui->rechargePasswordEdit->text()}});}
 void UserWindow::refreshStations(){sendRequest("station.list");}
 void UserWindow::refreshAll(){if(!m_socket.isEncrypted())return;refreshStations();if(m_userId>0){sendRequest("user.orders");}}
-void UserWindow::reserve(){auto *item=ui->stationTable->currentItem();if(!item){QMessageBox::information(this,"提示","请先选择站点");return;}sendRequest("reservation.create",{{"chargerId",item->data(Qt::UserRole).toLongLong()}});}
+void UserWindow::reserve(){if(ui->chargerCombo->currentIndex()<0){QMessageBox::information(this,"提示","请先选择充电桩");return;}sendRequest("reservation.create",{{"chargerId",ui->chargerCombo->currentData().toLongLong()}});}
 void UserWindow::cancelReservation(){if(m_reservationId>0)sendRequest("reservation.cancel",{{"reservationId",m_reservationId},{"reason","USER_CANCELLED"}});}
 void UserWindow::startCharge()
 {
-    auto *item=ui->stationTable->currentItem();
-    if(!item){QMessageBox::information(this,"提示","请先选择一个有空闲电桩的站点");return;}
+    if(ui->chargerCombo->currentIndex()<0){QMessageBox::information(this,"提示","请先选择充电桩");return;}
     static const QStringList modes={"AMOUNT","ENERGY","TIME"};
     const int index=ui->modeCombo->currentIndex();
     if(index<0||index>=modes.size()){QMessageBox::warning(this,"操作失败","充电模式无效");return;}
-    sendRequest("charge.start",{{"chargerId",item->data(Qt::UserRole).toLongLong()},
+    sendRequest("charge.start",{{"chargerId",ui->chargerCombo->currentData().toLongLong()},
                                 {"mode",modes.at(index)},
                                {"target",ui->targetSpin->value()}});
 }
@@ -266,7 +272,10 @@ void UserWindow::jsSetCenter(double lat, double lng, int zoom)
 }
 void UserWindow::navigateToStation(int row)
 {
-    if(!m_stationCoords.contains(row)){QMessageBox::information(this,"提示","站点坐标数据不可用，请先刷新列表");return;}
+    auto *item=ui->stationTable->item(row,0);
+    if(!item)return;
+    qint64 stationId=item->data(Qt::UserRole).toLongLong();
+    if(!m_stationCoords.contains(stationId)){QMessageBox::information(this,"提示","站点坐标数据不可用，请先刷新列表");return;}
     const QString apiKey=mapApiKey();
     if(apiKey.isEmpty()){
         m_pendingNavRowKey=QString::number(row);
@@ -274,7 +283,7 @@ void UserWindow::navigateToStation(int row)
         QMessageBox::information(this,"提示","正在从服务器获取地图配置，请稍后重试");
         return;
     }
-    m_navTarget=m_stationCoords[row];
+    m_navTarget=m_stationCoords[stationId];
     ui->navTitleLabel->setText("导航 — "+m_navTarget.name);
     ui->navSummaryLabel->setText("正在获取路线…");
     ui->navSearchResultList->hide();
@@ -447,11 +456,12 @@ void UserWindow::showResult(const QJsonObject &m)
         m_stationCoords.clear();
         for(int r=0;r<rows.size();++r){
             const auto s=rows[r].toObject();
-            m_stationCoords[r]={s.value("longitude").toDouble(),s.value("latitude").toDouble(),s.value("name").toString(),s.value("address").toString()};
+            const qint64 stationId=s.value("id").toVariant().toLongLong();
+            m_stationCoords[stationId]={s.value("longitude").toDouble(),s.value("latitude").toDouble(),s.value("name").toString(),s.value("address").toString()};
             QStringList vals={s.value("name").toString(),s.value("address").toString(),QString::number(s.value("price").toDouble(),'f',2),QString::number(s.value("idle").toInt())+"/"+QString::number(s.value("total").toInt())};
             for(int c=0;c<vals.size();++c){
                 auto *it=new QTableWidgetItem(vals[c]);
-                it->setData(Qt::UserRole,s.value("chargerId").toVariant());
+                it->setData(Qt::UserRole,stationId);
                 ui->stationTable->setItem(r,c,it);
             }
             auto *btn=new QPushButton("导航");
@@ -466,6 +476,22 @@ void UserWindow::showResult(const QJsonObject &m)
             const int r2=r; connect(btn,&QPushButton::clicked,this,[this,r2]{navigateToStation(r2);});
         }
         renderStationMarkers();
+    }
+    else if(type=="station.chargers.result"){
+        const QJsonArray chargers=data.value("chargers").toArray();
+        ui->chargerCombo->clear();
+        for(const auto &c:chargers){
+            const QJsonObject ch=c.toObject();
+            const QString code=ch.value("code").toString();
+            const QString chType=ch.value("type").toString()=="FAST"?"快充":"慢充";
+            const double power=ch.value("rated_power").toDouble();
+            const QString status=ch.value("status").toString();
+            const bool idle=(status=="IDLE"||status=="RESERVED");
+            QString label=code+" | "+chType+" | "+QString::number(power,'f',0)+"kW";
+            if(!idle) label+=" (不可用)";
+            ui->chargerCombo->addItem(label,ch.value("id").toVariant().toLongLong());
+            if(!idle) ui->chargerCombo->setItemData(ui->chargerCombo->count()-1,false,Qt::UserRole-1);
+        }
     }
     else if(type=="user.orders.result"){qint64 activeId=0;for(const auto &value:data.value("items").toArray()){const QJsonObject order=value.toObject();if(order.value("status").toString()=="CHARGING"){activeId=order.value("id").toVariant().toLongLong();break;}}if(activeId>0){m_orderId=activeId;ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}else if(m_orderId>0){m_orderId=0;ui->chargeStatusLabel->setText("当前无充电订单");}}
     else if(type=="reservation.create.result"){m_reservationId=data.value("reservationId").toVariant().toLongLong();QMessageBox::information(this,"预约成功","预约有效期 20 分钟");}

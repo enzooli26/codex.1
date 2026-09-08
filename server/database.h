@@ -20,6 +20,7 @@ public:
     bool loginAdmin(const QString &username, const QString &password, QString *error);
     bool registerAdmin(const QString &username, const QString &password, QString *error);
     QJsonArray stationList(QString *error);
+    QJsonArray chargersByStation(qint64 stationId, QString *error);
     QJsonObject createReservation(qint64 userId, qint64 chargerId, QString *error);
     bool cancelReservation(qint64 userId, qint64 reservationId, const QString &reason, QString *error);
     QJsonObject startCharge(qint64 userId, qint64 chargerId, const QString &mode,
@@ -88,6 +89,7 @@ public slots:
     void doSetUserStatus(qint64 requestId, qint64 userId, const QString &status);
     void doRestartCharger(qint64 requestId, qint64 chargerId);
     void doExpireReservations(qint64 requestId);
+    void doChargersByStation(qint64 requestId, qint64 stationId);
 
 private:
     QSqlDatabase m_db;

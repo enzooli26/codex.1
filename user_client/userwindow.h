@@ -27,11 +27,12 @@ private: void sendRequest(const QString &type,const QJsonObject &payload={}); vo
     void handleSearchResult(const QJsonObject &data);
     void handleSuggestionResult(const QJsonObject &data);
     Ui::UserWindow *ui; QSslSocket m_socket; QByteArray m_buffer; qint64 m_userId=0; qint64 m_reservationId=0; qint64 m_orderId=0;
+    qint64 m_selectedStationId=0;
     QNetworkAccessManager m_nam;
     QString m_mapApiKey;
     QString m_pendingNavRowKey;
     struct StationInfo { double longitude; double latitude; QString name; QString address; };
-    QMap<int,StationInfo> m_stationCoords;
+    QMap<qint64,StationInfo> m_stationCoords;
     StationInfo m_navTarget;
     QWebEngineView *m_navWebView=nullptr;
     QWebChannel *m_webChannel=nullptr;

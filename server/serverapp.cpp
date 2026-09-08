@@ -552,6 +552,25 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
         return;
     }
 
+    // ===== 站点充电桩列表 =====
+    else if(type == "station.chargers") {
+        qint64 requestId = ++m_nextRequestId;
+        {
+            QMutexLocker locker(&m_dbMutex);
+            PendingDbRequest pending;
+            pending.socket = socket;
+            pending.originalMessage = message;
+            pending.timestamp = QDateTime::currentMSecsSinceEpoch();
+            pending.requestType = type;
+            m_pendingDbRequests[requestId] = pending;
+        }
+        QMetaObject::invokeMethod(m_database, "doChargersByStation",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(qint64, requestId),
+                                  Q_ARG(qint64, p.value("stationId").toVariant().toLongLong()));
+        return;
+    }
+
     // ===== 创建预约 =====
     else if(type == "reservation.create") {
         QString err;
