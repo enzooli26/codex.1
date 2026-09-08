@@ -13,7 +13,7 @@
      <item><spacer name="topSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>30</width><height>20</height></size></property></spacer></item>
      <item><widget class="QLabel" name="chargerSummaryLabel"><property name="text"><string>电桩 0  |  空闲 0  |  充电中 0  |  故障 0</string></property></widget></item>
      <item><widget class="QLabel" name="timeLabel"><property name="text"><string>--</string></property></widget></item>
-     <item><widget class="QLabel" name="adminLabel"><property name="text"><string>管理员: 未登录</string></property></widget></item><item><widget class="QPushButton" name="addAdminButton"><property name="text"><string>新增管理员</string></property></widget></item>
+      <item><widget class="QLabel" name="adminLabel"><property name="text"><string>管理员: 未登录</string></property></widget></item><item><widget class="QPushButton" name="addAdminButton"><property name="text"><string>新增管理员</string></property></widget></item><item><widget class="QPushButton" name="reconnectButton"><property name="text"><string>重新连接</string></property><property name="visible"><bool>false</bool></property><property name="styleSheet"><string notr="true">background:#e67e22</string></property></widget></item>
     </layout></widget></item>
     <item><layout class="QHBoxLayout" name="bodyLayout" stretch="0,1"><property name="spacing"><number>10</number></property>
      <item><widget class="QFrame" name="sideBar"><property name="minimumSize"><size><width>185</width><height>0</height></size></property><property name="maximumSize"><size><width>185</width><height>16777215</height></size></property><layout class="QVBoxLayout" name="sideLayout">

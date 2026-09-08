@@ -1,27 +1,38 @@
 #pragma once
 
-#include <QByteArray>
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
-#include <QSslSocket>
 #include <QStringList>
-#include <QTimer>
 #include "edgedatabase.h"
+
+class DeviceNetwork;
+class SimulatorTick;
 
 class Simulator : public QObject
 {
     Q_OBJECT
 public:
-    explicit Simulator(const QStringList &codes,const QString &databasePath,
-                       const QString &token,QObject *parent=nullptr);
+    explicit Simulator(const QStringList &codes, const QString &databasePath,
+                       const QString &token, QObject *parent = nullptr);
+
+    void setNetwork(DeviceNetwork *network);
+    void setDatabase(EdgeDatabase *database);
+    void setTick(SimulatorTick *tick);
+
     bool initialize(QString *error);
-    void start(const QString &host,quint16 port);
+    void start(const QString &host, quint16 port);
     void disconnectFromServer();
     void connectToServer();
-    EdgeDatabase &database(){return m_database;}
-    bool isRegistered() const {return m_registered;}
-    bool isDisconnected() const {return m_disconnected;}
+
+    bool isRegistered() const { return m_registered; }
+    bool isDisconnected() const { return m_disconnected; }
+
+    QJsonArray stations(QString *error);
+    QJsonArray chargersByStation(int stationId, QString *error);
+    QJsonObject activeOrderForCharger(const QString &code, QString *error);
+    QString chargerStatus(const QString &code, QString *error);
+
 signals:
     void connectionChanged(bool connected);
     void chargerStatusChanged(const QString &code, const QString &status);
@@ -30,37 +41,44 @@ signals:
     void disconnectedStateChanged(bool disconnected);
     void chargerAdded(const QString &code);
     void chargerRemoved(const QString &code);
+
+    void connectNetwork(QString host, quint16 port);
+    void disconnectNetwork();
+    void sendMessage(QJsonObject message);
+
 public slots:
     void stopOrder(const QString &chargerCode);
+
 private slots:
-    void connected();
-    void readMessages();
-    void heartbeat();
-    void telemetry();
-    void reconnect();
+    void onNetworkConnected();
+    void onNetworkDisconnected();
+    void onMessageReceived(QJsonObject message);
+    void onHeartbeatTick();
+    void onTelemetryTick();
     void onHeartbeatTimeout();
+
 private:
     void dispatch(const QJsonObject &message);
-    void send(const QJsonObject &message);
-    void sendRequest(const QString &type,const QJsonObject &payload);
+    void sendRequest(const QString &type, const QJsonObject &payload);
     void sendSync();
     void checkDisconnection();
     void syncPendingOrders();
     void syncChargerList(const QJsonArray &serverChargers);
+
     QStringList m_codes;
     QString m_databasePath;
     QString m_token;
-    QSslSocket m_socket;
-    QByteArray m_buffer;
-    QTimer m_heartbeat;
-    QTimer m_heartbeatTimer;
-    QTimer m_reconnectTimer;
-    QTimer m_telemetry;
+
+    DeviceNetwork *m_network = nullptr;
+    EdgeDatabase *m_database = nullptr;
+    SimulatorTick *m_tick = nullptr;
+
     int m_heartbeatFailures = 0;
-    bool m_registered=false;
+    bool m_registered = false;
     bool m_disconnected = false;
-    bool m_manualDisconnect=false;
-    QString m_lastHeartbeatTime;
-    EdgeDatabase m_database;
-    QHash<QString,double> m_soc;
+    bool m_manualDisconnect = false;
+    QString m_host;
+    quint16 m_port = 0;
+
+    QHash<QString, double> m_soc;
 };

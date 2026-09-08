@@ -112,6 +112,11 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
         ui->chargerCombo->clear();
         sendRequest("station.chargers",{{"stationId",m_selectedStationId}});
     });
+    const QStringList modeUnits={" ¥"," kWh"," min"};
+    connect(ui->modeCombo,QOverload<int>::of(&QComboBox::currentIndexChanged),this,[this,modeUnits](int idx){
+        if(idx>=0&&idx<modeUnits.size()) ui->targetSpin->setSuffix(modeUnits.at(idx));
+    });
+    ui->targetSpin->setSuffix(modeUnits.at(ui->modeCombo->currentIndex()));
     connect(ui->navSearchEdit,&QLineEdit::textChanged,this,[this]{ m_suggestionTimer->start(); });
     connect(ui->navSearchEdit,&QLineEdit::returnPressed,this,[this]{ m_suggestionTimer->stop(); doPlaceSearch(ui->navSearchEdit->text().trimmed()); });
     connect(ui->navSearchButton,&QPushButton::clicked,this,[this]{ m_suggestionTimer->stop(); doPlaceSearch(ui->navSearchEdit->text().trimmed()); });
@@ -476,6 +481,14 @@ void UserWindow::showResult(const QJsonObject &m)
             const int r2=r; connect(btn,&QPushButton::clicked,this,[this,r2]{navigateToStation(r2);});
         }
         renderStationMarkers();
+        if(m_selectedStationId>0){
+            if(m_stationCoords.contains(m_selectedStationId)){
+                sendRequest("station.chargers",{{"stationId",m_selectedStationId}});
+            }else{
+                m_selectedStationId=0;
+                ui->chargerCombo->clear();
+            }
+        }
     }
     else if(type=="station.chargers.result"){
         const QJsonArray chargers=data.value("chargers").toArray();

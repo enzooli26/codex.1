@@ -2,12 +2,15 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QObject>
 #include <QSqlDatabase>
 #include <QStringList>
 
-class EdgeDatabase
+class EdgeDatabase : public QObject
 {
+    Q_OBJECT
 public:
+    explicit EdgeDatabase(QObject *parent = nullptr);
     ~EdgeDatabase();
     bool open(const QString &path,const QStringList &chargerCodes,QString *error);
     QJsonArray stations(QString *error);

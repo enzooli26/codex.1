@@ -1,7 +1,6 @@
 #include "simwindow.h"
 #include "ui_simwindow.h"
 #include "simulator.h"
-#include "edgedatabase.h"
 #include <QPushButton>
 #include <QLabel>
 #include <QFrame>
@@ -61,7 +60,7 @@ void SimWindow::buildStationList()
 {
     qDebug() << "DEBUG: buildStationList() called";
     QString error;
-    const QJsonArray stations = m_simulator->database().stations(&error);
+    const QJsonArray stations = m_simulator->stations(&error);
     if(!error.isEmpty()){
         QMessageBox::warning(this, "错误", "加载充电站列表失败: " + error);
         return;
@@ -125,7 +124,7 @@ void SimWindow::onStationClicked(int stationId)
 void SimWindow::buildChargerList(int stationId)
 {
     QString error;
-    const QJsonArray chargers = m_simulator->database().chargersByStation(stationId, &error);
+    const QJsonArray chargers = m_simulator->chargersByStation(stationId, &error);
     for(auto it=m_chargerCards.begin();it!=m_chargerCards.end();++it) delete it.value();
     m_chargerCards.clear();
     m_statusLabels.clear();
@@ -137,7 +136,7 @@ void SimWindow::buildChargerList(int stationId)
         return;
     }
     QString error2;
-    const QJsonArray stations = m_simulator->database().stations(&error2);
+    const QJsonArray stations = m_simulator->stations(&error2);
     for(int i=0;i<stations.size();++i){
         if(stations[i].toObject().value("id").toInt()==stationId){
             ui->chargerTitle->setText(stations[i].toObject().value("name").toString() + " — 充电桩");
@@ -201,7 +200,7 @@ QFrame *SimWindow::createChargerCard(const QJsonObject &charger)
 void SimWindow::updateChargerCard(const QString &code)
 {
     QString error;
-    const QString status = m_simulator->database().chargerStatus(code, &error);
+    const QString status = m_simulator->chargerStatus(code, &error);
     QLabel *sl = m_statusLabels.value(code);
     if(sl){
         if(status=="CHARGING"){
@@ -221,7 +220,7 @@ void SimWindow::updateChargerCard(const QString &code)
     QLabel *ol = m_orderLabels.value(code);
     QPushButton *sb = m_stopButtons.value(code);
     if(status=="CHARGING"){
-        QJsonObject order = m_simulator->database().activeOrderForCharger(code, &error);
+        QJsonObject order = m_simulator->activeOrderForCharger(code, &error);
         if(!order.isEmpty()){
             const qint64 oid = order.value("orderId").toVariant().toLongLong();
             const QString mode = order.value("mode").toString();
@@ -287,7 +286,7 @@ void SimWindow::onOrderChanged(const QString &chargerCode, const QJsonObject &)
 void SimWindow::onStopClicked(const QString &chargerCode)
 {
     QString error;
-    const QJsonObject active = m_simulator->database().activeOrderForCharger(chargerCode, &error);
+    const QJsonObject active = m_simulator->activeOrderForCharger(chargerCode, &error);
     if(active.isEmpty()) return;
     const auto ret = QMessageBox::question(this, "确认停止",
         QString("确定停止充电桩 %1 的充电吗？\n订单 #%2").arg(chargerCode).arg(active.value("orderId").toVariant().toLongLong()));

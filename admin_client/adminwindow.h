@@ -38,6 +38,7 @@ private:
     QtCharts::QChartView *m_stationChart=nullptr;
     QtCharts::QChartView *m_voltageChart=nullptr; QtCharts::QChartView *m_currentChart=nullptr; QtCharts::QChartView *m_powerChart=nullptr;
     bool m_loggedIn=false;
+    bool m_pendingReconnect=false;
     QMap<QString,QVector<double>> m_telVoltage;
     QMap<QString,QVector<double>> m_telCurrent;
     QMap<QString,QVector<double>> m_telPower;

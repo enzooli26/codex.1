@@ -7,6 +7,7 @@
 
 namespace { QString utcNow(){return QDateTime::currentDateTimeUtc().toString(Qt::ISODate);} }
 
+EdgeDatabase::EdgeDatabase(QObject *parent) : QObject(parent) {}
 EdgeDatabase::~EdgeDatabase(){if(m_db.isOpen())m_db.close();}
 
 bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QString *error)

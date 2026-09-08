@@ -64,6 +64,7 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
 
     // UI 信号连接
     connect(ui->connectButton,&QPushButton::clicked,this,&AdminWindow::connectServer);connect(ui->loginButton,&QPushButton::clicked,this,&AdminWindow::login);
+    connect(ui->reconnectButton,&QPushButton::clicked,this,&AdminWindow::connectServer);
     connect(ui->addAdminButton,&QPushButton::clicked,this,&AdminWindow::addAdmin);
     connect(ui->refreshButton,&QPushButton::clicked,this,&AdminWindow::refreshAll);connect(ui->navList,&QListWidget::currentRowChanged,this,&AdminWindow::loadPage);
     connect(ui->addStationButton,&QPushButton::clicked,this,&AdminWindow::addStation);connect(ui->updateStationButton,&QPushButton::clicked,this,&AdminWindow::updateStation);connect(ui->deleteStationButton,&QPushButton::clicked,this,&AdminWindow::deleteStation);
@@ -190,12 +191,19 @@ void AdminWindow::onConnected()
 {
     ui->connectionLabel->setText("🔒 TLS 已连接");
     ui->connectionLabel->setStyleSheet("color:#3ddc97");
+    ui->reconnectButton->setVisible(false);
+    if(m_pendingReconnect){
+        m_pendingReconnect=false;
+        login();
+    }
 }
 void AdminWindow::onDisconnected()
 {
     m_loggedIn=false;
+    m_pendingReconnect=true;
     ui->connectionLabel->setText("服务器未连接");
     ui->connectionLabel->setStyleSheet("color:#ff6b6b");
+    ui->reconnectButton->setVisible(true);
 }
 void AdminWindow::onConnectionError(const QString &error)
 {
