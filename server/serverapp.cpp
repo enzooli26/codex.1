@@ -157,6 +157,8 @@ void ServerApp::dispatch(QSslSocket *socket,const QJsonObject &message)
         if(socket->property("role").toString()!="user")error="请先登录";else data=m_database.recharge(socket->property("userId").toLongLong(),p.value("amount").toDouble(),p.value("password").toString(),&error);
     }else if(type=="user.orders"){
         if(socket->property("role").toString()!="user")error="请先登录";else data={{"items",m_database.userOrders(socket->property("userId").toLongLong(),&error)}};
+    }else if(type=="user.info"){
+        if(socket->property("role").toString()!="user")error="请先登录";else data=m_database.userInfo(socket->property("userId").toLongLong(),&error);
     }else if(type=="auth.admin"){
         if(m_database.loginAdmin(p.value("username").toString(),p.value("password").toString(),&error)){socket->setProperty("role","admin");data={{"username",p.value("username")}};}
     }else if(type=="station.list"){
