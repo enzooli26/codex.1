@@ -8,6 +8,9 @@
 #include <QJsonObject>
 #include <QPointer>
 #include <QTimer>
+#include <QThread>
+#include <QMutex>   // 新增：线程同步
+#include <QUuid>
 #include "database.h"
 class QSslSocket;
 
@@ -30,6 +33,7 @@ class ServerApp : public QObject
     Q_OBJECT
 public:
     explicit ServerApp(QObject *parent = nullptr);
+    ~ServerApp();
     bool start(quint16 port, const QString &databasePath,
                const QString &certificatePath, const QString &privateKeyPath,
                const QString &deviceToken, const QString &mapApiKey = QString());
@@ -38,6 +42,7 @@ private slots:
     void acceptConnections();
     void readClient();
     void removeClient();
+    void onDatabaseResult(qint64 requestId, int code, const QJsonObject &data, const QString &error);
 
 private:
     void dispatch(QSslSocket *socket, const QJsonObject &message);
@@ -45,6 +50,9 @@ private:
     void failPendingForSocket(QSslSocket *socket, const QString &reason);
     QSslSocket *connectedDevice(const QString &chargerCode) const;
     void send(QSslSocket *socket, const QJsonObject &message);
+    qint64 asyncDbRequest(const QJsonObject &message, QSslSocket *socket,
+                              std::function<void(QSslSocket*,const QJsonObject&)> callback);
+
     struct PendingCommand {
         QString action;
         QPointer<QSslSocket> client;
@@ -53,8 +61,14 @@ private:
         qint64 orderId=0;
         QString chargerCode;
     };
+    struct PendingDbRequest {
+           QPointer<QSslSocket> socket;
+           QJsonObject originalMessage;
+       };
+
     TlsTcpServer m_server;
-    Database m_database;
+//    QThread *m_dbThread;
+//    Database m_database;
     QHash<QSslSocket *, QByteArray> m_buffers;
     QHash<QString,QSslSocket *> m_chargerSockets;
     QHash<QSslSocket *,QStringList> m_socketChargers;
@@ -63,4 +77,10 @@ private:
     QString m_deviceToken;
     QString m_mapApiKey;
     QTimer m_expiryTimer;
+
+    QThread *m_dbThread;           // 数据库工作线程
+    Database *m_database;
+    QHash<qint64, PendingDbRequest> m_pendingDbRequests;  // 新增：数据库请求跟踪
+    QMutex m_dbMutex;              // 新增：保护m_pendingDbRequests
+    qint64 m_nextRequestId;
 };

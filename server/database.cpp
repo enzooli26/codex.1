@@ -9,14 +9,34 @@
 #include <QSqlRecord>
 #include <QUuid>
 
+
 namespace {
 QString now() { return QDateTime::currentDateTimeUtc().toString(Qt::ISODate); }
 QString legacyHash(const QString &password) { return QString::fromLatin1(QCryptographicHash::hash(password.toUtf8(),QCryptographicHash::Sha256).toHex()); }
 }
-
+Database::Database(QObject *parent) : QObject(parent) {}
 Database::~Database()
 {
     if (m_db.isOpen()) m_db.close();
+}
+
+void Database::sendResult(qint64 requestId, const QJsonObject &data, const QString &error)
+{
+    emit operationResult(requestId, error.isEmpty() ? 0 : 400, data, error);
+}
+
+void Database::sendArrayResult(qint64 requestId, const QJsonArray &data, const QString &error)
+{
+    QJsonObject result;
+    result["items"] = data;
+    emit operationResult(requestId, error.isEmpty() ? 0 : 400, result, error);
+}
+
+void Database::sendBoolResult(qint64 requestId, bool success, const QString &error)
+{
+    QJsonObject data;
+    data["success"] = success;
+    emit operationResult(requestId, success ? 0 : 400, data, error);
 }
 
 bool Database::open(const QString &path, QString *error)
@@ -185,7 +205,8 @@ bool Database::loginAdmin(const QString &username, const QString &password, QStr
         if(error)*error=attempts>=5?"密码错误 5 次，管理员账户已锁定":"账号或密码错误，还可尝试 "+QString::number(5-attempts)+" 次";return false;
     }
     QSqlQuery reset(m_db);
-    if(salt.isEmpty()){const QString newSalt=PasswordUtils::createSalt();reset.prepare("UPDATE admins SET password_salt=?,password_hash=?,failed_attempts=0,locked_at=NULL WHERE id=?");reset.addBindValue(newSalt);reset.addBindValue(PasswordUtils::hashPassword(password,newSalt));reset.addBindValue(id);}
+    if(salt.isEmpty()){const QString newSalt=PasswordUtils::createSalt();
+    reset.prepare("UPDATE admins SET password_salt=?,password_hash=?,failed_attempts=0,locked_at=NULL WHERE id=?");reset.addBindValue(newSalt);reset.addBindValue(PasswordUtils::hashPassword(password,newSalt));reset.addBindValue(id);}
     else{reset.prepare("UPDATE admins SET failed_attempts=0,locked_at=NULL WHERE id=?");reset.addBindValue(id);}reset.exec();
     return true;
 }
@@ -194,7 +215,8 @@ bool Database::registerAdmin(const QString &username,const QString &password,QSt
 {
     if(!QRegularExpression(QStringLiteral("^[A-Za-z][A-Za-z0-9_]{3,31}$")).match(username).hasMatch()){if(error)*error="管理员账号须为 4～32 位字母、数字或下划线，并以字母开头";return false;}
     if(!PasswordUtils::validPassword(password)){if(error)*error="管理员密码长度须为 6～64 位";return false;}
-    const QString salt=PasswordUtils::createSalt();QSqlQuery q(m_db);q.prepare("INSERT INTO admins(username,password_salt,password_hash,role,status,failed_attempts) VALUES(?,?,?,'ADMIN','NORMAL',0)");q.addBindValue(username);q.addBindValue(salt);q.addBindValue(PasswordUtils::hashPassword(password,salt));
+    const QString salt=PasswordUtils::createSalt();
+    QSqlQuery q(m_db);q.prepare("INSERT INTO admins(username,password_salt,password_hash,role,status,failed_attempts) VALUES(?,?,?,'ADMIN','NORMAL',0)");q.addBindValue(username);q.addBindValue(salt);q.addBindValue(PasswordUtils::hashPassword(password,salt));
     if(!q.exec()){if(error)*error=q.lastError().nativeErrorCode()=="19"?"管理员账号已存在":q.lastError().text();return false;}
     QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ADD_ADMIN','ADMIN',?,'SUCCESS',?)");log.addBindValue(q.lastInsertId());log.addBindValue(now());log.exec();return true;
 }
@@ -453,7 +475,8 @@ QJsonArray Database::adminOrders(QString *error)
 QJsonArray Database::adminUsers(const QString &phoneFilter,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("SELECT id,phone,nickname,balance,status,failed_attempts,COALESCE(locked_at,'--'),created_at FROM users WHERE phone LIKE ? ORDER BY id DESC LIMIT 300");q.addBindValue("%"+phoneFilter+"%");
-    if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"phone",q.value(1).toString()},{"nickname",q.value(2).toString()},{"balance",q.value(3).toDouble()},{"status",q.value(4).toString()},{"failedAttempts",q.value(5).toInt()},{"lockedAt",q.value(6).toString()},{"createdAt",q.value(7).toString()}});return a;
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"phone",q.value(1).toString()},{"nickname",q.value(2).toString()},{"balance",q.value(3).toDouble()},{"status",q.value(4).toString()},{"failedAttempts",q.value(5).toInt()},{"lockedAt",q.value(6).toString()},{"createdAt",q.value(7).toString()}});return a;
 }
 
 QJsonArray Database::adminLogs(QString *error)
@@ -464,7 +487,8 @@ QJsonArray Database::adminLogs(QString *error)
 
 QJsonObject Database::addStation(const QJsonObject &s,QString *error)
 {
-    const QString name=s.value("name").toString().trimmed(),address=s.value("address").toString().trimmed();const double lon=s.value("longitude").toDouble(),lat=s.value("latitude").toDouble(),price=s.value("price").toDouble();
+    const QString name=s.value("name").toString().trimmed(),address=s.value("address").toString().trimmed();
+    const double lon=s.value("longitude").toDouble(),lat=s.value("latitude").toDouble(),price=s.value("price").toDouble();
     if(name.isEmpty()||address.isEmpty()||lon<-180||lon>180||lat<-90||lat>90||price<=0){if(error)*error="请填写有效的站名、地址、经纬度和基础电价";return{};}
     QSqlQuery q(m_db);q.prepare("INSERT INTO stations(name,address,longitude,latitude,base_price,status) VALUES(?,?,?,?,?,'ONLINE')");q.addBindValue(name);q.addBindValue(address);q.addBindValue(lon);q.addBindValue(lat);q.addBindValue(price);if(!q.exec()){if(error)*error=q.lastError().text();return{};}const qint64 id=q.lastInsertId().toLongLong();QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','ADD_STATION','STATION',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return{{"id",id}};
 }
@@ -529,7 +553,15 @@ bool Database::setUserStatus(qint64 id,const QString &status,QString *error)
 
 bool Database::restartCharger(qint64 id,QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("UPDATE chargers SET status='IDLE',last_seen=? WHERE id=? AND status!='CHARGING'");q.addBindValue(now());q.addBindValue(id);if(!q.exec()||q.numRowsAffected()!=1){if(error)*error="设备不存在或正在充电，不能重启";return false;}QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','RESTART_CHARGER','CHARGER',?,'SUCCESS',?)");log.addBindValue(id);log.addBindValue(now());log.exec();return true;
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE chargers SET status='IDLE',last_seen=? WHERE id=? AND status!='CHARGING'");
+    q.addBindValue(now());
+    q.addBindValue(id);
+    if(!q.exec()||q.numRowsAffected()!=1){if(error)*error="设备不存在或正在充电，不能重启";return false;}QSqlQuery log(m_db);log.prepare("INSERT INTO operation_logs(actor_type,action,target_type,target_id,result,created_at) VALUES('ADMIN','RESTART_CHARGER','CHARGER',?,'SUCCESS',?)");
+    log.addBindValue(id);
+    log.addBindValue(now());
+    log.exec();
+    return true;
 }
 
 int Database::expireReservations(QString *error)
@@ -549,4 +581,140 @@ int Database::expireReservations(QString *error)
         if(!release.exec()){rollback();if(error)*error=release.lastError().text();return -1;}
     }
     if(!commit(error)){rollback();return -1;}return ids.size();
+}
+//
+void Database::doRegisterUser(qint64 requestId, const QString &phone, const QString &password)
+{
+    QString error;
+    QJsonObject result = registerUser(phone, password, &error);
+    sendResult(requestId, result, error);
+}
+
+void Database::doLoginUser(qint64 requestId, const QString &phone, const QString &password)
+{
+    QString error;
+    QJsonObject result = loginUser(phone, password, &error);
+    sendResult(requestId, result, error);
+}
+
+void Database::doRecharge(qint64 requestId, qint64 userId, double amount, const QString &password)
+{
+    QString error;
+    QJsonObject result = recharge(userId, amount, password, &error);
+    sendResult(requestId, result, error);
+}
+
+void Database::doStationList(qint64 requestId)
+{
+    QString error;
+    QJsonArray result = stationList(&error);
+    sendArrayResult(requestId, result, error);
+}
+
+void Database::doAdminSummary(qint64 requestId)
+{
+    QString error;
+    QJsonObject result = adminSummary(&error);
+    sendResult(requestId, result, error);
+}
+
+void Database::doAdminStations(qint64 requestId)
+{
+    QString error;
+    QJsonArray result = adminStations(&error);
+    sendArrayResult(requestId, result, error);
+}
+
+void Database::doAdminChargers(qint64 requestId)
+{
+    QString error;
+    QJsonArray result = adminChargers(&error);
+    sendArrayResult(requestId, result, error);
+}
+
+void Database::doAdminOrders(qint64 requestId)
+{
+    QString error;
+    QJsonArray result = adminOrders(&error);
+    sendArrayResult(requestId, result, error);
+}
+
+void Database::doAdminUsers(qint64 requestId, const QString &phoneFilter)
+{
+    QString error;
+    QJsonArray result = adminUsers(phoneFilter, &error);
+    sendArrayResult(requestId, result, error);
+}
+
+void Database::doAdminLogs(qint64 requestId)
+{
+    QString error;
+    QJsonArray result = adminLogs(&error);
+    sendArrayResult(requestId, result, error);
+}
+
+void Database::doAddStation(qint64 requestId, const QJsonObject &station)
+{
+    QString error;
+    QJsonObject result = addStation(station, &error);
+    sendResult(requestId, result, error);
+}
+
+void Database::doUpdateStation(qint64 requestId, const QJsonObject &station)
+{
+    QString error;
+    bool success = updateStation(station, &error);
+    sendBoolResult(requestId, success, error);
+}
+
+void Database::doDeleteStation(qint64 requestId, qint64 stationId)
+{
+    QString error;
+    bool success = deleteStation(stationId, &error);
+    sendBoolResult(requestId, success, error);
+}
+
+void Database::doAddCharger(qint64 requestId, const QJsonObject &charger)
+{
+    QString error;
+    QJsonObject result = addCharger(charger, &error);
+    sendResult(requestId, result, error);
+}
+
+void Database::doUpdateCharger(qint64 requestId, const QJsonObject &charger)
+{
+    QString error;
+    bool success = updateCharger(charger, &error);
+    sendBoolResult(requestId, success, error);
+}
+
+void Database::doDeleteCharger(qint64 requestId, qint64 chargerId)
+{
+    QString error;
+    bool success = deleteCharger(chargerId, &error);
+    sendBoolResult(requestId, success, error);
+}
+
+void Database::doSetUserStatus(qint64 requestId, qint64 userId, const QString &status)
+{
+    QString error;
+    bool success = setUserStatus(userId, status, &error);
+    sendBoolResult(requestId, success, error);
+}
+
+void Database::doRestartCharger(qint64 requestId, qint64 chargerId)
+{
+    QString error;
+    bool success = restartCharger(chargerId, &error);
+    sendBoolResult(requestId, success, error);
+}
+
+void Database::doExpireReservations(qint64 requestId)
+{
+    QString error;
+    int count = expireReservations(&error);
+    QJsonObject data;
+    data["expiredCount"] = count;
+    data["error"] = error;
+    emit operationResult(requestId, error.isEmpty() ? 0 : 400, data, error);
 }

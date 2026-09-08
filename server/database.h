@@ -4,10 +4,12 @@
 #include <QJsonObject>
 #include <QSqlDatabase>
 #include <QStringList>
-
-class Database
+#include <QObject>
+class Database:public QObject
 {
+       Q_OBJECT
 public:
+     explicit Database(QObject *parent = nullptr);
     ~Database();
     bool open(const QString &path, QString *error);
     QJsonObject registerUser(const QString &phone, const QString &password, QString *error);
@@ -54,6 +56,37 @@ public:
     bool setUserStatus(qint64 userId, const QString &status, QString *error);
     bool restartCharger(qint64 chargerId, QString *error);
     int expireReservations(QString *error);
+signals:
+    // 新增：异步操作完成信号
+    void registerUserResult(qint64 requestId, const QJsonObject &result, const QString &error);
+    void loginUserResult(qint64 requestId, const QJsonObject &result, const QString &error);
+    void rechargeResult(qint64 requestId, const QJsonObject &result, const QString &error);
+    void stationListResult(qint64 requestId, const QJsonArray &result, const QString &error);
+    void adminSummaryResult(qint64 requestId, const QJsonObject &result, const QString &error);
+    // 通用结果信号
+    void operationResult(qint64 requestId, int code, const QJsonObject &data, const QString &error);
+
+public slots:
+    // 新增：异步操作槽函数（在工作线程中执行）
+    void doRegisterUser(qint64 requestId, const QString &phone, const QString &password);
+    void doLoginUser(qint64 requestId, const QString &phone, const QString &password);
+    void doRecharge(qint64 requestId, qint64 userId, double amount, const QString &password);
+    void doStationList(qint64 requestId);
+    void doAdminSummary(qint64 requestId);
+    void doAdminStations(qint64 requestId);
+    void doAdminChargers(qint64 requestId);
+    void doAdminOrders(qint64 requestId);
+    void doAdminUsers(qint64 requestId, const QString &phoneFilter);
+    void doAdminLogs(qint64 requestId);
+    void doAddStation(qint64 requestId, const QJsonObject &station);
+    void doUpdateStation(qint64 requestId, const QJsonObject &station);
+    void doDeleteStation(qint64 requestId, qint64 stationId);
+    void doAddCharger(qint64 requestId, const QJsonObject &charger);
+    void doUpdateCharger(qint64 requestId, const QJsonObject &charger);
+    void doDeleteCharger(qint64 requestId, qint64 chargerId);
+    void doSetUserStatus(qint64 requestId, qint64 userId, const QString &status);
+    void doRestartCharger(qint64 requestId, qint64 chargerId);
+    void doExpireReservations(qint64 requestId);
 
 private:
     QSqlDatabase m_db;
@@ -63,4 +96,8 @@ private:
     void rollback();
     bool ensureColumn(const QString &table, const QString &column,
                       const QString &definition, QString *error);
+
+    void sendResult(qint64 requestId, const QJsonObject &data, const QString &error);
+        void sendArrayResult(qint64 requestId, const QJsonArray &data, const QString &error);
+        void sendBoolResult(qint64 requestId, bool success, const QString &error);
 };
