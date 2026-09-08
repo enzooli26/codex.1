@@ -74,7 +74,8 @@ QJsonArray EdgeDatabase::stations(QString *error)
                       "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
                       "GROUP BY s.id ORDER BY s.id";
     if(!q.exec(sql)){if(error)*error=q.lastError().text();return{};}
-    QJsonArray result;while(q.next())result.append(QJsonObject{
+    QJsonArray result;
+    while(q.next())result.append(QJsonObject{
         {"id",q.value(0).toInt()},{"name",q.value(1).toString()},{"status",q.value(2).toString()},
         {"total",q.value(3).toInt()},{"charging",q.value(4).toInt()},{"idle",q.value(5).toInt()}});
     return result;
@@ -82,7 +83,10 @@ QJsonArray EdgeDatabase::stations(QString *error)
 
 QJsonArray EdgeDatabase::chargers(QString *error)
 {
-    QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id")){if(error)*error=q.lastError().text();return{};}
+    QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id"))
+    {
+        if(error)*error=q.lastError().text();return{};
+    }
     QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});return result;
 }
 
