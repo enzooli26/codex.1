@@ -61,11 +61,16 @@ ApplicationWindow {
             Label { text: "列表可上下滚动，点击卡片选择站点"; color: muted; font.pixelSize: 12 }
             ListView { id: stationList; Layout.fillWidth: true; Layout.fillHeight: true; spacing: 10; clip: true; boundsBehavior: Flickable.StopAtBounds; model: mobileClient.stations; ScrollBar.vertical: ScrollBar{policy:ScrollBar.AsNeeded}
                 delegate: Card { width: stationList.width; height: 116; border.width:index===mobileClient.selectedIndex?2:1; border.color:index===mobileClient.selectedIndex?primary:"#E5EAF2"
+                    MouseArea { anchors.fill: parent; onClicked: mobileClient.selectStation(index) }
                     RowLayout { anchors.fill: parent; anchors.margins: 15
                         ColumnLayout { Layout.fillWidth:true; spacing:5; Label{Layout.fillWidth:true;text:modelData.name;color:ink;font.pixelSize:16;font.bold:true;elide:Text.ElideRight} Label{Layout.fillWidth:true;text:modelData.address;color:muted;font.pixelSize:12;elide:Text.ElideRight} Label{text:"¥"+Number(modelData.price).toFixed(2)+"/度";color:primary;font.bold:true} }
                         Rectangle { implicitWidth:68;implicitHeight:36;radius:18;color:modelData.idle>0?"#E8F7F1":"#FFF0F2"; Label{anchors.centerIn:parent;text:modelData.idle+"/"+modelData.total+" 空闲";color:modelData.idle>0?"#238765":"#C74D5E";font.pixelSize:12;font.bold:true} }
+                        Rectangle { Layout.leftMargin:8; implicitWidth:64;implicitHeight:36;radius:18;color:primary
+                            Label { anchors.centerIn: parent; text:"导航"; color:"white"; font.pixelSize:13; font.bold:true }
+                            MouseArea { anchors.fill:parent; onClicked: { if(modelData.latitude===0&&modelData.longitude===0){toastText.text="该站点暂无坐标，无法导航";toast.opacity=1;toastTimer.restart();return;}
+                                    Qt.openUrlExternally("https://apis.map.qq.com/uri/v1/routeplan?type=drive&from="+encodeURIComponent("我的位置")+"&fromcoord=CurrentLocation&to="+encodeURIComponent(modelData.name)+"&tocoord="+modelData.latitude.toFixed(6)+","+modelData.longitude.toFixed(6)+"&referer="+encodeURIComponent("com.course.evcharging")) } }
+                        }
                     }
-                    MouseArea { anchors.fill: parent; onClicked: mobileClient.selectStation(index) }
                 }
                 Label { anchors.centerIn:parent;visible:stationList.count===0;text:mobileClient.connected?"暂无站点，点击刷新":"请先在“我的”中连接服务器";color:muted }
             }
