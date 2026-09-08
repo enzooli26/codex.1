@@ -23,6 +23,7 @@ private:
     void send(const QString &type,const QJsonObject &payload=QJsonObject());
     void requestSummary(); void requestOrders(); void requestLogs();
     void loadPage(int index); void fillTable(class QTableWidget *table,const QJsonArray &items,const QStringList &keys);
+    void showSequentialNumbers(class QTableWidget *table);
     void updateStationChoices(const QJsonArray &items);
     void updateDashboard(const QJsonObject &data);
     Ui::AdminWindow *ui; QSslSocket m_socket; QByteArray m_buffer;

@@ -27,6 +27,11 @@ QT_CHARTS_USE_NAMESPACE
 AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWindow)
 {
     ui->setupUi(this); ui->navList->setCurrentRow(0);
+    ui->topLayout->setSpacing(14);
+    ui->timeLabel->setContentsMargins(12,0,12,0);
+    ui->adminLabel->setContentsMargins(6,0,6,0);
+    ui->stationsTable->horizontalHeaderItem(0)->setText("序号");
+    ui->chargersTable->horizontalHeaderItem(0)->setText("序号");
     ui->navList->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->navList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     ui->navList->setSpacing(2);
@@ -128,7 +133,12 @@ void AdminWindow::refreshAll(){if(!m_loggedIn){QMessageBox::information(this,"�
 void AdminWindow::loadPage(int index){ui->pages->setCurrentIndex(qMax(0,index));if(!m_loggedIn)return;if(index==0)requestSummary();else if(index==1)send("admin.stations");else if(index==2){send("admin.chargers");refreshOperations();}else if(index==3)requestOrders();else if(index==4)send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});else if(index==5)requestLogs();}
 void AdminWindow::fillTable(QTableWidget *table,const QJsonArray &items,const QStringList &keys)
 {
-    table->setUpdatesEnabled(false);table->clearContents();table->setRowCount(items.size());for(int r=0;r<items.size();++r){const auto o=items.at(r).toObject();for(int c=0;c<keys.size();++c){const QString key=keys.at(c);const QJsonValue v=o.value(key);QString t;if(v.isDouble()){int decimals=0;if(QStringList({"amount","balance","price","energy"}).contains(key))decimals=2;else if(QStringList({"longitude","latitude"}).contains(key))decimals=6;else if(key=="power")decimals=1;t=QString::number(v.toDouble(),'f',decimals);}else t=v.toVariant().toString();auto *item=new QTableWidgetItem(t);item->setTextAlignment(Qt::AlignCenter);item->setToolTip(t);table->setItem(r,c,item);}}table->setUpdatesEnabled(true);
+    table->setUpdatesEnabled(false);table->clearContents();table->setRowCount(items.size());for(int r=0;r<items.size();++r){const auto o=items.at(r).toObject();for(int c=0;c<keys.size();++c){const QString key=keys.at(c);const QJsonValue v=o.value(key);QString t;if(v.isDouble()){int decimals=0;if(QStringList({"amount","balance","price","energy"}).contains(key))decimals=2;else if(QStringList({"longitude","latitude"}).contains(key))decimals=6;else if(key=="power")decimals=1;t=QString::number(v.toDouble(),'f',decimals);}else t=v.toVariant().toString();auto *item=new QTableWidgetItem(t);if(key=="id")item->setData(Qt::UserRole,v.toVariant());item->setTextAlignment(Qt::AlignCenter);item->setToolTip(t);table->setItem(r,c,item);}}table->setUpdatesEnabled(true);
+}
+
+void AdminWindow::showSequentialNumbers(QTableWidget *table)
+{
+    for(int row=0;row<table->rowCount();++row){QTableWidgetItem *item=table->item(row,0);if(!item)continue;item->setText(QString::number(row+1));item->setToolTip(QString("显示序号：%1\n数据库 ID：%2").arg(row+1).arg(item->data(Qt::UserRole).toLongLong()));}
 }
 
 void AdminWindow::updateStationChoices(const QJsonArray &items)
@@ -155,8 +165,8 @@ void AdminWindow::readMessages()
         const QString t=m.value("type").toString();const auto d=m.value("data").toObject();
         if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}
         else if(t=="admin.summary.result")updateDashboard(d);
-        else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}
-    else if(t=="admin.chargers.result")fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","health","sessions","duration","lastSeen","voltage","current","livePower","soc"});
+        else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});showSequentialNumbers(ui->stationsTable);updateStationChoices(items);}
+        else if(t=="admin.chargers.result"){fillTable(ui->chargersTable,d.value("items").toArray(),{"id","code","station","chargerType","power","status","health","sessions","duration","lastSeen","voltage","current","livePower","soc"});showSequentialNumbers(ui->chargersTable);}
         else if(t=="admin.alarms.result"){
             const auto items=d.value("items").toArray();int active=0,critical=0;
             for(const auto &value:items){const auto alarm=value.toObject();if(alarm.value("status").toString()!="RESOLVED")++active;if(alarm.value("status").toString()!="RESOLVED"&&alarm.value("level").toString()=="CRITICAL")++critical;}
@@ -184,8 +194,8 @@ void AdminWindow::readMessages()
     if(!err.isEmpty())QMessageBox::warning(this,"协议错误",err);
 }
 void AdminWindow::addStation(){send("admin.station.add",{{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()}});}
-void AdminWindow::updateStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电站");return;}send("admin.station.update",{{"stationId",ui->stationsTable->item(r,0)->text().toLongLong()},{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()},{"status",ui->stationStatusCombo->currentText()}});}
-void AdminWindow::deleteStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要删除的电站");return;}if(QMessageBox::question(this,"确认删除","确定删除电站“"+ui->stationsTable->item(r,1)->text()+"”吗？\n存在关联电桩时服务器会拒绝删除。")!=QMessageBox::Yes)return;send("admin.station.delete",{{"stationId",ui->stationsTable->item(r,0)->text().toLongLong()}});}
+void AdminWindow::updateStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电站");return;}send("admin.station.update",{{"stationId",ui->stationsTable->item(r,0)->data(Qt::UserRole).toLongLong()},{"name",ui->stationNameEdit->text()},{"address",ui->addressEdit->text()},{"longitude",ui->longitudeSpin->value()},{"latitude",ui->latitudeSpin->value()},{"price",ui->priceSpin->value()},{"status",ui->stationStatusCombo->currentText()}});}
+void AdminWindow::deleteStation(){const int r=ui->stationsTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要删除的电站");return;}if(QMessageBox::question(this,"确认删除","确定删除电站“"+ui->stationsTable->item(r,1)->text()+"”吗？\n存在关联电桩时服务器会拒绝删除。")!=QMessageBox::Yes)return;send("admin.station.delete",{{"stationId",ui->stationsTable->item(r,0)->data(Qt::UserRole).toLongLong()}});}
 void AdminWindow::addCharger(){
     if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录管理员账号");return;}
     if(!m_socket.isEncrypted()){QMessageBox::information(this,"提示","服务器未连接，请先建立 TLS 连接");return;}
@@ -196,8 +206,8 @@ void AdminWindow::addCharger(){
     ui->chargerCodeEdit->setText(code);statusBar()->showMessage("正在新增电桩 "+code+"…",5000);
     send("admin.charger.add",{{"stationId",ui->chargerStationCombo->currentData().toLongLong()},{"code",code},{"chargerType",ui->chargerTypeCombo->currentText()},{"power",ui->chargerPowerSpin->value()},{"status",ui->chargerStatusCombo->currentText()}});
 }
-void AdminWindow::updateCharger(){const int r=ui->chargersTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电桩");return;}send("admin.charger.update",{{"chargerId",ui->chargersTable->item(r,0)->text().toLongLong()},{"stationId",ui->chargerStationCombo->currentData().toLongLong()},{"code",ui->chargerCodeEdit->text()},{"chargerType",ui->chargerTypeCombo->currentText()},{"power",ui->chargerPowerSpin->value()},{"status",ui->chargerStatusCombo->currentText()}});}
-void AdminWindow::deleteCharger(){const int r=ui->chargersTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要删除的电桩");return;}if(QMessageBox::question(this,"确认删除","确定删除电桩“"+ui->chargersTable->item(r,1)->text()+"”吗？\n已有业务记录的设备应改为 OFFLINE，不允许删除。")!=QMessageBox::Yes)return;send("admin.charger.delete",{{"chargerId",ui->chargersTable->item(r,0)->text().toLongLong()}});}
+void AdminWindow::updateCharger(){const int r=ui->chargersTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要修改的电桩");return;}send("admin.charger.update",{{"chargerId",ui->chargersTable->item(r,0)->data(Qt::UserRole).toLongLong()},{"stationId",ui->chargerStationCombo->currentData().toLongLong()},{"code",ui->chargerCodeEdit->text()},{"chargerType",ui->chargerTypeCombo->currentText()},{"power",ui->chargerPowerSpin->value()},{"status",ui->chargerStatusCombo->currentText()}});}
+void AdminWindow::deleteCharger(){const int r=ui->chargersTable->currentRow();if(r<0){QMessageBox::information(this,"提示","请先选择要删除的电桩");return;}if(QMessageBox::question(this,"确认删除","确定删除电桩“"+ui->chargersTable->item(r,1)->text()+"”吗？\n已有业务记录的设备应改为 OFFLINE，不允许删除。")!=QMessageBox::Yes)return;send("admin.charger.delete",{{"chargerId",ui->chargersTable->item(r,0)->data(Qt::UserRole).toLongLong()}});}
 void AdminWindow::addAdmin(){if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录现有管理员账号");return;}bool ok=false;const QString username=QInputDialog::getText(this,"新增管理员","新管理员账号（4～32 位）：",QLineEdit::Normal,QString(),&ok).trimmed();if(!ok)return;const QString password=QInputDialog::getText(this,"新增管理员","设置密码（至少 6 位）：",QLineEdit::Password,QString(),&ok);if(!ok)return;const QString confirm=QInputDialog::getText(this,"新增管理员","再次输入密码：",QLineEdit::Password,QString(),&ok);if(!ok)return;if(username.isEmpty()||password.size()<6||password!=confirm){QMessageBox::warning(this,"输入错误",password!=confirm?"两次密码输入不一致":"账号或密码格式错误");return;}send("admin.account.add",{{"username",username},{"password",password},{"confirmPassword",confirm}});}
 void AdminWindow::changeUserStatus(const QString &status){int r=ui->usersTable->currentRow();if(r<0||!ui->usersTable->item(r,0)){QMessageBox::information(this,"提示","请先选择一个用户");return;}send("admin.user.status",{{"userId",ui->usersTable->item(r,0)->text().toLongLong()},{"status",status}});}
-void AdminWindow::restartCharger(){int r=ui->chargersTable->currentRow();if(r<0||!ui->chargersTable->item(r,0)){QMessageBox::information(this,"提示","请先选择一个电桩");return;}send("admin.charger.restart",{{"chargerId",ui->chargersTable->item(r,0)->text().toLongLong()}});}
+void AdminWindow::restartCharger(){int r=ui->chargersTable->currentRow();if(r<0||!ui->chargersTable->item(r,0)){QMessageBox::information(this,"提示","请先选择一个电桩");return;}send("admin.charger.restart",{{"chargerId",ui->chargersTable->item(r,0)->data(Qt::UserRole).toLongLong()}});}
