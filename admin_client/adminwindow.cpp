@@ -21,6 +21,7 @@
 #include <QTableWidget>
 #include <QTimer>
 #include <QThread>
+#include <QScrollBar>
 #include <numeric>
 QT_CHARTS_USE_NAMESPACE
 
@@ -98,7 +99,7 @@ void AdminWindow::send(const QString &type,const QJsonObject &payload)
 }
 void AdminWindow::login(){if(ui->usernameEdit->text().trimmed().isEmpty()||ui->passwordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","管理员账号和密码不能为空");return;}send("auth.admin",{{"username",ui->usernameEdit->text().trimmed()},{"password",ui->passwordEdit->text()}});}
 void AdminWindow::refreshAll(){if(!m_loggedIn){QMessageBox::information(this,"提示","请先登录管理员账号");return;}send("admin.summary");send("admin.stations");send("admin.chargers");send("admin.orders");send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});send("admin.logs");}
-void AdminWindow::loadPage(int index){ui->pages->setCurrentIndex(qMax(0,index));if(!m_loggedIn)return;const QStringList types={"admin.summary","admin.stations","admin.chargers","admin.orders","admin.users","admin.logs"};send(types.value(index,"admin.summary"),index==4?QJsonObject{{"phone",ui->phoneSearchEdit->text()}}:QJsonObject());}
+void AdminWindow::loadPage(int index){ui->contentScroll->verticalScrollBar()->setValue(0);ui->pages->setCurrentIndex(qMax(0,index));if(!m_loggedIn)return;const QStringList types={"admin.summary","admin.stations","admin.chargers","admin.orders","admin.users","admin.logs"};send(types.value(index,"admin.summary"),index==4?QJsonObject{{"phone",ui->phoneSearchEdit->text()}}:QJsonObject());}
 void AdminWindow::fillTable(QTableWidget *table,const QJsonArray &items,const QStringList &keys)
 {
     table->setUpdatesEnabled(false);table->clearContents();table->setRowCount(items.size());for(int r=0;r<items.size();++r){const auto o=items.at(r).toObject();for(int c=0;c<keys.size();++c){const QString key=keys.at(c);const QJsonValue v=o.value(key);QString t;if(v.isDouble()){int decimals=0;if(QStringList({"amount","balance","price","energy"}).contains(key))decimals=2;else if(QStringList({"longitude","latitude"}).contains(key))decimals=6;else if(QStringList({"power","voltage","current","livePower"}).contains(key))decimals=1;t=QString::number(v.toDouble(),'f',decimals);}else t=v.toVariant().toString();auto *item=new QTableWidgetItem(t);item->setTextAlignment(Qt::AlignCenter);table->setItem(r,c,item);}}table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);table->setUpdatesEnabled(true);
@@ -123,7 +124,7 @@ void AdminWindow::updateDashboard(const QJsonObject &d)
 void AdminWindow::updateTelemetryChart(const QJsonArray &chargers)
 {
     QMap<QString,QList<double>> voltMap,curMap,powMap;
-    for(const auto &v:chargers){const auto c=v.toObject();const QString st=c.value("station").toString();if(st.isEmpty())continue;const double vol=c.value("voltage").toDouble();const double cur=c.value("current").toDouble();const double pow=c.value("livePower").toDouble();if(vol>0||cur>0||pow>0){voltMap[st].append(vol);curMap[st].append(cur);powMap[st].append(pow);}}
+    for(const auto &v:chargers){const auto c=v.toObject();const QString st=c.value("station").toString();if(st.isEmpty())continue;if(c.value("status").toString()!="CHARGING")continue;const double vol=c.value("voltage").toDouble();const double cur=c.value("current").toDouble();const double pow=c.value("livePower").toDouble();if(vol>0||cur>0||pow>0){voltMap[st].append(vol);curMap[st].append(cur);powMap[st].append(pow);}}
     QMap<QString,QVector<double>> avgV,avgC,avgP;
     for(auto it=voltMap.constBegin();it!=voltMap.constEnd();++it){const auto &l=it.value();avgV[it.key()].append(l.isEmpty()?0:std::accumulate(l.begin(),l.end(),0.0)/l.size());}
     for(auto it=curMap.constBegin();it!=curMap.constEnd();++it){const auto &l=it.value();avgC[it.key()].append(l.isEmpty()?0:std::accumulate(l.begin(),l.end(),0.0)/l.size());}

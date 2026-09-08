@@ -21,6 +21,14 @@ SimWindow::SimWindow(Simulator *simulator, QWidget *parent)
     connect(m_simulator, &Simulator::chargerStatusChanged, this, &SimWindow::onChargerStatusChanged);
     connect(m_simulator, &Simulator::orderChanged, this, &SimWindow::onOrderChanged);
     connect(m_simulator, &Simulator::disconnectedStateChanged, this, &SimWindow::onDisconnectedChanged);
+    connect(m_simulator, &Simulator::chargerAdded, this, [this](const QString &){
+        buildStationList();
+        if(m_currentStationId > 0) buildChargerList(m_currentStationId);
+    });
+    connect(m_simulator, &Simulator::chargerRemoved, this, [this](const QString &){
+        buildStationList();
+        if(m_currentStationId > 0) buildChargerList(m_currentStationId);
+    });
     connect(ui->toggleConnBtn, &QPushButton::clicked, this, &SimWindow::onToggleConnection);
     qDebug() << "SimWindow constructed";
     buildStationList();

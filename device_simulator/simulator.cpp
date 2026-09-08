@@ -142,7 +142,10 @@ void Simulator::heartbeat()
 void Simulator::telemetry()
 {
     bool completed=false;
-    for(const QString &code:m_codes){
+    QString err;
+    const QJsonArray allChargers=m_database.chargers(&err);
+    for(const auto &v:allChargers){
+        const QString code=v.toObject().value("code").toString();
         QString error;const QString status=m_database.chargerStatus(code,&error);if(status!="CHARGING")continue;
         //设置电压为380V左右浮动
         const double voltage=380.0+QRandomGenerator::global()->bounded(500)/100.0;
@@ -284,8 +287,10 @@ void Simulator::dispatch(const QJsonObject &message)
             payload.value("stationName").toString(),
             &error);
         if(error.isEmpty()){
-            emit chargerAdded(payload.value("code").toString());
-            qInfo() << "New charger synced from server:" << payload.value("code").toString();
+            const QString newCode=payload.value("code").toString();
+            m_soc[newCode]=35.0;
+            emit chargerAdded(newCode);
+            qInfo() << "New charger synced from server:" << newCode;
         }else{
             qWarning() << "Failed to sync charger:" << error;
         }
