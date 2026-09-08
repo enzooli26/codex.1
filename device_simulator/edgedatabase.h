@@ -28,6 +28,8 @@ public:
                      double power,double soc,QString *error);
     QString chargerStatus(const QString &chargerCode,QString *error);
     double chargerRatedPower(const QString &chargerCode,QString *error);
+    bool addChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error);
+    bool removeChargerByCode(const QString &code,QString *error=nullptr);
 private:
     QSqlDatabase m_db;
     QJsonObject orderObject(qint64 centralOrderId,QString *error);

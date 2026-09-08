@@ -16,7 +16,7 @@ class UserWindow : public QMainWindow
 {
     Q_OBJECT
 public: explicit UserWindow(QWidget *parent=nullptr); ~UserWindow();
-private slots: void connectServer(); void readMessages(); void login(); void registerUser(); void recharge(); void refreshStations(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
+private slots: void connectServer(); void readMessages(); void login(); void registerUser(); void recharge(); void refreshStations(); void refreshAll(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
     void navigateToStation(int row);
 private: void sendRequest(const QString &type,const QJsonObject &payload={}); void showResult(const QJsonObject &message);
     QString mapApiKey() const;
@@ -40,6 +40,7 @@ private: void sendRequest(const QString &type,const QJsonObject &payload={}); vo
     bool m_mapJsReady=false;
     bool m_mapPageLoaded=false;
     QTimer *m_suggestionTimer=nullptr;
+    QTimer *m_refreshTimer=nullptr;
     struct PendingRoute { QString fromLat,fromLng,toLat,toLng; QJsonArray polyline; };
     PendingRoute m_pendingRoute;
     bool m_hasPendingRoute=false;

@@ -74,7 +74,8 @@ QJsonArray EdgeDatabase::stations(QString *error)
                       "FROM stations s LEFT JOIN chargers c ON c.station_id=s.id "
                       "GROUP BY s.id ORDER BY s.id";
     if(!q.exec(sql)){if(error)*error=q.lastError().text();return{};}
-    QJsonArray result;while(q.next())result.append(QJsonObject{
+    QJsonArray result;
+    while(q.next())result.append(QJsonObject{
         {"id",q.value(0).toInt()},{"name",q.value(1).toString()},{"status",q.value(2).toString()},
         {"total",q.value(3).toInt()},{"charging",q.value(4).toInt()},{"idle",q.value(5).toInt()}});
     return result;
@@ -82,7 +83,10 @@ QJsonArray EdgeDatabase::stations(QString *error)
 
 QJsonArray EdgeDatabase::chargers(QString *error)
 {
-    QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id")){if(error)*error=q.lastError().text();return{};}
+    QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id"))
+    {
+        if(error)*error=q.lastError().text();return{};
+    }
     QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});return result;
 }
 
@@ -252,4 +256,30 @@ QString EdgeDatabase::chargerStatus(const QString &chargerCode,QString *error)
 double EdgeDatabase::chargerRatedPower(const QString &chargerCode,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("SELECT rated_power FROM chargers WHERE code=?");q.addBindValue(chargerCode);if(!q.exec()||!q.next()){if(error)*error="本地充电桩不存在";return 0;}return q.value(0).toDouble();
+}
+
+bool EdgeDatabase::addChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error)
+{
+    // 查找或创建站点
+    qint64 stationId=-1;
+    QSqlQuery findStation(m_db);findStation.prepare("SELECT id FROM stations WHERE name=?");findStation.addBindValue(stationName);
+    if(findStation.exec()&&findStation.next()){stationId=findStation.value(0).toLongLong();}
+    else{
+        QSqlQuery createStation(m_db);createStation.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");createStation.addBindValue(stationName);
+        if(!createStation.exec()){if(error)*error=createStation.lastError().text();return false;}
+        QSqlQuery getId(m_db);getId.prepare("SELECT id FROM stations WHERE name=?");getId.addBindValue(stationName);
+        if(getId.exec()&&getId.next())stationId=getId.value(0).toLongLong();
+    }
+    // 插入充电桩（INSERT OR IGNORE 避免重复）
+    QSqlQuery add(m_db);add.prepare("INSERT OR IGNORE INTO chargers(code,type,rated_power,station_id,status,last_seen) VALUES(?,?,?,?,?,?)");
+    add.bindValue(0,code);add.bindValue(1,type.isEmpty()?"FAST":type);add.bindValue(2,ratedPower>0?ratedPower:120);add.bindValue(3,stationId);add.bindValue(4,"IDLE");add.bindValue(5,utcNow());
+    if(!add.exec()){if(error)*error=add.lastError().text();return false;}
+    return true;
+}
+
+bool EdgeDatabase::removeChargerByCode(const QString &code,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("DELETE FROM chargers WHERE code=?");q.addBindValue(code);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return true;
 }

@@ -5,6 +5,7 @@ release/
 *.o
 *.obj
 *.exe
+admin_client/ev_admin_client
 *.dll
 *.a
 Makefile
@@ -15,8 +16,6 @@ ui_*
 qrc_*
 
 # Local runtime state
-config/app.ini
-config/server-key.pem
 data/
 *.db
 *.db-shm
@@ -30,3 +29,5 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+config/app.ini
+config/server-key.pem
