@@ -39,6 +39,7 @@ public:
     QJsonObject stopCharge(qint64 userId, qint64 orderId, QString *error);
     bool updateHeartbeat(const QString &chargerCode, const QString &status, QString *error);
     bool markDeviceOffline(const QStringList &chargerCodes, QString *error);
+    QJsonArray allChargersForDevice(QString *error);
     bool insertTelemetry(const QString &chargerCode, double voltage, double current,
                          double power, double soc, QString *error);
     QJsonObject adminSummary(QString *error);

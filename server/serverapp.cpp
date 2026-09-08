@@ -702,6 +702,8 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
         QJsonObject result;
         result["registered"] = codes.size();
         result["syncRequired"] = true;
+        QString dbErr;
+        result["chargers"] = m_database->allChargersForDevice(&dbErr);
         send(socket, Protocol::response(message, err.isEmpty() ? 0 : 400,
                                         err.isEmpty() ? "ok" : err, result));
         return;

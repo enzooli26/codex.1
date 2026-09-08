@@ -151,7 +151,7 @@ void UserWindow::startCharge()
     if(index<0||index>=modes.size()){QMessageBox::warning(this,"操作失败","充电模式无效");return;}
     sendRequest("charge.start",{{"chargerId",item->data(Qt::UserRole).toLongLong()},
                                 {"mode",modes.at(index)},
-                                {"target",ui->targetSpin->value()}});
+                               {"target",ui->targetSpin->value()}});
 }
 void UserWindow::stopCharge(){if(m_orderId>0)sendRequest("charge.stop",{{"orderId",m_orderId}});}
 void UserWindow::readMessages(){m_buffer.append(m_socket.readAll());QString error;for(const auto&m:Protocol::decode(m_buffer,&error))showResult(m);if(!error.isEmpty())QMessageBox::warning(this,"协议错误",error);}

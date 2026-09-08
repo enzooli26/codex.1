@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QJsonArray>
 #include <QRandomGenerator>
+#include <QSet>
 #include <QUuid>
 
 Simulator::Simulator(const QStringList &codes,const QString &databasePath,const QString &token,QObject *parent)
@@ -219,13 +220,43 @@ void Simulator::stopOrder(const QString &chargerCode)
     if(m_registered)sendSync();
 }
 
+void Simulator::syncChargerList(const QJsonArray &serverChargers)
+{
+    QString err;
+    const QJsonArray localChargers=m_database.chargers(&err);
+    QSet<QString> localCodes;
+    for(const auto &v:localChargers)localCodes.insert(v.toObject().value("code").toString());
+    for(const auto &v:serverChargers){
+        const QJsonObject c=v.toObject();
+        const QString code=c.value("code").toString();
+        if(code.isEmpty()||localCodes.contains(code))continue;
+        m_database.addChargerFromServer(
+            code,
+            c.value("type").toString("FAST"),
+            c.value("ratedPower").toDouble(120),
+            c.value("stationName").toString("未分配站点"),
+            &err);
+        if(err.isEmpty()){
+            m_soc[code]=35.0;
+            emit chargerAdded(code);
+            qInfo()<<"Synced new charger from server:"<<code;
+        }else{
+            qWarning()<<"Failed to sync charger"<<code<<":"<<err;
+        }
+    }
+}
+
 //负责解析从服务器接收到的 JSON 消息，根据 type 字段执行不同的业务逻辑，并返回响应
 void Simulator::dispatch(const QJsonObject &message)
 {
     const QString type=message.value("type").toString();const QJsonObject payload=message.value("payload").toObject();QString error;QJsonObject data;
     if(type=="device.register.result"){
         if(message.value("code").toInt()!=0){qWarning()<<"device registration rejected"<<message.value("message").toString();m_socket.disconnectFromHost();return;}
-        m_registered=true;heartbeat();sendSync();syncPendingOrders();return;
+        m_registered=true;
+        const QJsonArray serverChargers=message.value("data").toObject().value("chargers").toArray();
+        syncChargerList(serverChargers);
+        heartbeat();sendSync();syncPendingOrders();
+        return;
     }
     if(type=="device.sync.result"){
         if(message.value("code").toInt()!=0){qWarning()<<"sync rejected"<<message.value("message").toString();return;}

@@ -411,6 +411,21 @@ bool Database::markDeviceOffline(const QStringList &chargerCodes,QString *error)
     return true;
 }
 
+QJsonArray Database::allChargersForDevice(QString *error)
+{
+    QSqlQuery q(m_db);
+    if(!q.exec("SELECT c.code,c.type,c.rated_power,s.name "
+               "FROM chargers c JOIN stations s ON s.id=c.station_id "
+               "ORDER BY c.id")) {
+        if(error)*error=q.lastError().text();return{};
+    }
+    QJsonArray result;
+    while(q.next())result.append(QJsonObject{
+        {"code",q.value(0).toString()},{"type",q.value(1).toString()},
+        {"ratedPower",q.value(2).toDouble()},{"stationName",q.value(3).toString()}});
+    return result;
+}
+
 bool Database::insertTelemetry(const QString &chargerCode,double voltage,double current,double power,double soc,QString *error)
 {
     QSqlQuery find(m_db);find.prepare("SELECT id FROM chargers WHERE code=?");find.addBindValue(chargerCode);

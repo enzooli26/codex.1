@@ -46,6 +46,7 @@ private:
     void sendSync();
     void checkDisconnection();
     void syncPendingOrders();
+    void syncChargerList(const QJsonArray &serverChargers);
     QStringList m_codes;
     QString m_databasePath;
     QString m_token;
