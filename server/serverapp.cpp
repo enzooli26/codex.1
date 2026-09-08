@@ -1045,6 +1045,22 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
         return;
     }
 
+    else if(type == "user.info") {
+        if(socket->property("role").toString() != "user") {
+            send(socket, Protocol::response(message, 400, "无权操作"));
+            return;
+        }
+        const qint64 uid = socket->property("userId").toLongLong();
+        QString err;
+        QJsonObject user = m_database->userInfo(uid, &err);
+        if(user.isEmpty()) {
+            send(socket, Protocol::response(message, 400, err.isEmpty() ? "用户不存在" : err));
+            return;
+        }
+        send(socket, Protocol::response(message, 0, "ok", user));
+        return;
+    }
+
     else if(type == "admin.user.status") {
         if(socket->property("role").toString() != "admin") {
             send(socket, Protocol::response(message, 400, "无管理员权限"));
