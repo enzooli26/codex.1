@@ -608,9 +608,15 @@ void Database::doRecharge(qint64 requestId, qint64 userId, double amount, const 
 
 void Database::doStationList(qint64 requestId)
 {
+
     QString error;
     QJsonArray result = stationList(&error);
-    sendArrayResult(requestId, result, error);
+    QJsonObject data;
+       data["stations"] = result;
+       data["count"] = result.size();
+
+       // 直接发送 operationResult，不经过 sendArrayResult
+       emit operationResult(requestId, error.isEmpty() ? 0 : 400, data, error);
 }
 
 void Database::doAdminSummary(qint64 requestId)

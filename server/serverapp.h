@@ -64,6 +64,8 @@ private:
     struct PendingDbRequest {
            QPointer<QSslSocket> socket;
            QJsonObject originalMessage;
+           qint64 timestamp = 0;        // 【新增】请求时间戳
+               QString requestType;
        };
 
     TlsTcpServer m_server;

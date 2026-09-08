@@ -177,6 +177,10 @@ void ServerApp::onDatabaseResult(qint64 requestId, int code, const QJsonObject &
     if (!socket || socket->state() != QAbstractSocket::ConnectedState) {
         return;
     }
+    QJsonObject response = Protocol::response(pending.originalMessage, code,
+                                                  error.isEmpty() ? "ok" : error, data);
+    qDebug() << "Sending response type:" << response.value("type").toString();
+       qDebug() << "Response data keys:" << response.value("data").toObject().keys();
 
     // 发送响应
     send(socket, Protocol::response(pending.originalMessage, code,
@@ -396,6 +400,7 @@ void ServerApp::handleDeviceResult(QSslSocket *socket,const QJsonObject &message
 // ===== 主要消息分发函数（核心改动）=====
 void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
 {
+
     const QString type = message.value("type").toString();
     const QJsonObject p = message.value("payload").toObject();
     QString error;
@@ -521,26 +526,29 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
 
     // ===== 电站列表 =====
     else if(type == "station.list") {
-//        {
-//            QMutexLocker locker(&m_dbMutex);
-//            PendingDbRequest pending;
-//            pending.socket = socket;
-//            pending.originalMessage = message;
-//            m_pendingDbRequests[requestId] = pending;
-//        }
-//        QMetaObject::invokeMethod(m_database, "doStationList",
-//                                  Qt::QueuedConnection,
-//                                  Q_ARG(qint64, requestId));
-        QString err;
-                QJsonArray stations = m_database->stationList(&err);
+        qint64 requestId = ++m_nextRequestId;
+        {
+            QMutexLocker locker(&m_dbMutex);
+            PendingDbRequest pending;
+            pending.socket = socket;
+            pending.originalMessage = message;
+            pending.timestamp = QDateTime::currentMSecsSinceEpoch();  // 【新增】
+            pending.requestType = type;  // 【新增】
+            m_pendingDbRequests[requestId] = pending;
+        }
+        QMetaObject::invokeMethod(m_database, "doStationList",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(qint64, requestId));
+//        QString err;
+//                QJsonArray stations = m_database->stationList(&err);
 
-                if (err.isEmpty()) {
-                    QJsonObject data;
-                    data["stations"] = stations;
-                    send(socket, Protocol::response(message, 0, "ok", data));
-                } else {
-                    send(socket, Protocol::response(message, 400, err));
-                }
+//                if (err.isEmpty()) {
+//                    QJsonObject data;
+//                    data["stations"] = stations;
+//                    send(socket, Protocol::response(message, 0, "ok", data));
+//                } else {
+//                    send(socket, Protocol::response(message, 400, err));
+//                }
         return;
     }
 
@@ -728,9 +736,13 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
             result["message"] = itemError;
             results.append(result);
             if(itemError.isEmpty() && result.value("status").toString() == "COMPLETED") {
+                qint64 userId = result.value("userId").toVariant().toLongLong();
+
                 QSslSocket *user = m_userSockets.value(
                     result.value("userId").toVariant().toLongLong(), nullptr);
-                if(user) {
+                QString role = user->property("role").toString();
+                               qint64 currentUserId = user->property("userId").toLongLong();
+                if(role == "user" && currentUserId == userId) {
                     send(user, Protocol::request("charge.completed", result,
                         QUuid::createUuid().toString(QUuid::WithoutBraces)));
                 }
