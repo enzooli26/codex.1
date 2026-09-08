@@ -508,16 +508,26 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
 
     // ===== 电站列表 =====
     else if(type == "station.list") {
-        {
-            QMutexLocker locker(&m_dbMutex);
-            PendingDbRequest pending;
-            pending.socket = socket;
-            pending.originalMessage = message;
-            m_pendingDbRequests[requestId] = pending;
-        }
-        QMetaObject::invokeMethod(m_database, "doStationList",
-                                  Qt::QueuedConnection,
-                                  Q_ARG(qint64, requestId));
+//        {
+//            QMutexLocker locker(&m_dbMutex);
+//            PendingDbRequest pending;
+//            pending.socket = socket;
+//            pending.originalMessage = message;
+//            m_pendingDbRequests[requestId] = pending;
+//        }
+//        QMetaObject::invokeMethod(m_database, "doStationList",
+//                                  Qt::QueuedConnection,
+//                                  Q_ARG(qint64, requestId));
+        QString err;
+                QJsonArray stations = m_database->stationList(&err);
+
+                if (err.isEmpty()) {
+                    QJsonObject data;
+                    data["stations"] = stations;
+                    send(socket, Protocol::response(message, 0, "ok", data));
+                } else {
+                    send(socket, Protocol::response(message, 400, err));
+                }
         return;
     }
 
