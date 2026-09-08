@@ -180,6 +180,14 @@ QJsonArray Database::userOrders(qint64 userId,QString *error)
     if(!q.exec()){if(error)*error=q.lastError().text();return{};}QJsonArray a;while(q.next())a.append(QJsonObject{{"id",q.value(0).toLongLong()},{"station",q.value(1).toString()},{"charger",q.value(2).toString()},{"status",q.value(3).toString()},{"mode",q.value(4).toString()},{"energy",q.value(5).toDouble()},{"duration",q.value(6).toInt()},{"amount",q.value(7).toDouble()},{"startAt",q.value(8).toString()},{"endAt",q.value(9).toString()}});return a;
 }
 
+QJsonObject Database::userInfo(qint64 userId,QString *error)
+{
+    QSqlQuery q(m_db);q.prepare("SELECT id,nickname,balance,status FROM users WHERE id=?");q.addBindValue(userId);
+    if(!q.exec()){if(error)*error=q.lastError().text();return{};}
+    if(!q.next()){if(error)*error="用户不存在";return{};}
+    return{{"id",q.value(0).toLongLong()},{"nickname",q.value(1).toString()},{"balance",q.value(2).toDouble()},{"status",q.value(3).toString()}};
+}
+
 bool Database::loginAdmin(const QString &username, const QString &password, QString *error)
 {
     QSqlQuery q(m_db);

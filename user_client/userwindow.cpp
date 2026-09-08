@@ -19,6 +19,7 @@
 #include <QJsonDocument>
 #include <QWebEngineView>
 #include <QWebChannel>
+#include <QTimer>
 #include <QDebug>
 #include "mapbridge.h"
 #include "maphttpserver.h"
@@ -71,6 +72,10 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
         if(kw.isEmpty()){ ui->navSearchResultList->hide(); return; }
         doPlaceSuggestion(kw);
     });
+    m_refreshTimer=new QTimer(this);
+    m_refreshTimer->setInterval(10000);
+    connect(m_refreshTimer,&QTimer::timeout,this,&UserWindow::refreshAll);
+    m_refreshTimer->start();
     ui->stationTable->horizontalHeader()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
     ui->stationTable->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
     ui->stationTable->horizontalHeader()->setSectionResizeMode(2,QHeaderView::ResizeToContents);
@@ -97,7 +102,7 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     });
     connect(&m_socket,&QSslSocket::readyRead,this,&UserWindow::readMessages);
     connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->statusLabel->setText("🔒 TLS 已连接");ui->statusLabel->setStyleSheet("color:#2ca777;font-weight:600"); requestMapConfig();});
-    connect(&m_socket,&QSslSocket::disconnected,this,[this]{ui->statusLabel->setText("● 已断开");ui->statusLabel->setStyleSheet("color:#d85b6a;font-weight:600");});
+    connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_userId=0;ui->statusLabel->setText("● 已断开");ui->statusLabel->setStyleSheet("color:#d85b6a;font-weight:600");});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
     connect(ui->stationTable,&QTableWidget::cellClicked,this,[this](int row,int col){if(col==4)navigateToStation(row);});
     connect(ui->navSearchEdit,&QLineEdit::textChanged,this,[this]{ m_suggestionTimer->start(); });
@@ -134,6 +139,7 @@ void UserWindow::login(){const QString phone=ui->phoneEdit->text().trimmed(),pas
 void UserWindow::registerUser(){const QString phone=ui->phoneEdit->text().trimmed(),password=ui->passwordEdit->text(),confirm=ui->confirmPasswordEdit->text();if(!PasswordUtils::validPhone(phone)){QMessageBox::warning(this,"输入错误","请输入合法的 11 位手机号");return;}if(!PasswordUtils::validPassword(password)){QMessageBox::warning(this,"输入错误","密码长度须为 6～64 位");return;}if(password!=confirm){QMessageBox::warning(this,"输入错误","两次密码输入不一致");return;}sendRequest("auth.user.register",{{"phone",phone},{"password",password},{"confirmPassword",confirm}});}
 void UserWindow::recharge(){if(m_userId<=0){QMessageBox::information(this,"提示","请先登录");return;}if(ui->rechargePasswordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","充值前必须输入登录密码");return;}sendRequest("wallet.recharge",{{"amount",ui->rechargeSpin->value()},{"password",ui->rechargePasswordEdit->text()}});}
 void UserWindow::refreshStations(){sendRequest("station.list");}
+void UserWindow::refreshAll(){if(!m_socket.isEncrypted())return;refreshStations();if(m_userId>0){sendRequest("user.orders");sendRequest("user.info");}}
 void UserWindow::reserve(){auto *item=ui->stationTable->currentItem();if(!item){QMessageBox::information(this,"提示","请先选择站点");return;}sendRequest("reservation.create",{{"chargerId",item->data(Qt::UserRole).toLongLong()}});}
 void UserWindow::cancelReservation(){if(m_reservationId>0)sendRequest("reservation.cancel",{{"reservationId",m_reservationId},{"reason","USER_CANCELLED"}});}
 void UserWindow::startCharge()
@@ -434,6 +440,7 @@ void UserWindow::showResult(const QJsonObject &m)
     const QJsonObject data=type=="charge.completed"?m.value("payload").toObject():m.value("data").toObject();
     if(type=="auth.user.result"||type=="auth.user.register.result"){m_userId=data.value("id").toVariant().toLongLong();ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));refreshStations();sendRequest("user.orders");QMessageBox::information(this,"成功",type.contains("register")?"注册成功并已登录":"登录成功");}
     else if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
+    else if(type=="user.info.result"){ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="station.list.result"){
         const QJsonArray rows=data.value("stations").toArray();
         ui->stationTable->setRowCount(rows.size());
@@ -460,7 +467,7 @@ void UserWindow::showResult(const QJsonObject &m)
         }
         renderStationMarkers();
     }
-    else if(type=="user.orders.result"){for(const auto &value:data.value("items").toArray()){const QJsonObject order=value.toObject();if(order.value("status").toString()=="CHARGING"){m_orderId=order.value("id").toVariant().toLongLong();ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));break;}}}
+    else if(type=="user.orders.result"){qint64 activeId=0;for(const auto &value:data.value("items").toArray()){const QJsonObject order=value.toObject();if(order.value("status").toString()=="CHARGING"){activeId=order.value("id").toVariant().toLongLong();break;}}if(activeId>0){m_orderId=activeId;ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}else if(m_orderId>0){m_orderId=0;ui->chargeStatusLabel->setText("当前无充电订单");}}
     else if(type=="reservation.create.result"){m_reservationId=data.value("reservationId").toVariant().toLongLong();QMessageBox::information(this,"预约成功","预约有效期 20 分钟");}
     else if(type=="reservation.cancel.result"){m_reservationId=0;QMessageBox::information(this,"预约已取消","订单已取消");refreshStations();}
     else if(type=="charge.start.result"){m_orderId=data.value("orderId").toVariant().toLongLong();ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}
