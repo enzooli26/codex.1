@@ -1,8 +1,6 @@
 #include "userwindow.h"
 #include "ui_userwindow.h"
 #include "framecodec.h"
-#include "secureconnect.h"
-#include "passwordutils.h"
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QMessageBox>
@@ -85,9 +83,6 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     ui->stationTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ui->stationTable->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     ui->stationTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    connect(ui->connectButton,&QPushButton::clicked,this,&UserWindow::connectServer);
-    connect(ui->loginButton,&QPushButton::clicked,this,&UserWindow::login);
-    connect(ui->registerButton,&QPushButton::clicked,this,&UserWindow::registerUser);
     connect(ui->rechargeButton,&QPushButton::clicked,this,&UserWindow::recharge);
     connect(ui->refreshButton,&QPushButton::clicked,this,&UserWindow::refreshStations);
     connect(ui->reserveButton,&QPushButton::clicked,this,&UserWindow::reserve);
@@ -100,10 +95,6 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
             m_navWebView->page()->runJavaScript("wakeMap()");
         }
     });
-    connect(&m_socket,&QSslSocket::readyRead,this,&UserWindow::readMessages);
-    connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->statusLabel->setText("🔒 TLS 已连接");ui->statusLabel->setStyleSheet("color:#2ca777;font-weight:600"); requestMapConfig();});
-    connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_userId=0;ui->statusLabel->setText("● 已断开");ui->statusLabel->setStyleSheet("color:#d85b6a;font-weight:600");});
-    connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
     connect(ui->stationTable,&QTableWidget::cellClicked,this,[this](int row,int col){
         if(col==4){navigateToStation(row);return;}
         auto *item=ui->stationTable->item(row,0);
@@ -145,13 +136,54 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     });
 }
 UserWindow::~UserWindow(){delete ui;}
-void UserWindow::connectServer(){m_socket.abort();QString error;if(!SecureConnect::connectToServer(&m_socket,ui->hostEdit->text().trimmed(),static_cast<quint16>(ui->portSpin->value()),&error))QMessageBox::warning(this,"连接失败",error);}
-void UserWindow::sendRequest(const QString &type,const QJsonObject &payload){if(!m_socket.isEncrypted()){QMessageBox::information(this,"提示","请先建立 TLS 安全连接");return;}m_socket.write(Protocol::encode(Protocol::request(type,payload,QUuid::createUuid().toString(QUuid::WithoutBraces))));}
-void UserWindow::login(){const QString phone=ui->phoneEdit->text().trimmed(),password=ui->passwordEdit->text();if(!PasswordUtils::validPhone(phone)){QMessageBox::warning(this,"输入错误","请输入合法的 11 位手机号");return;}if(password.isEmpty()){QMessageBox::warning(this,"输入错误","密码不能为空");return;}sendRequest("auth.user",{{"phone",phone},{"password",password}});}
-void UserWindow::registerUser(){const QString phone=ui->phoneEdit->text().trimmed(),password=ui->passwordEdit->text(),confirm=ui->confirmPasswordEdit->text();if(!PasswordUtils::validPhone(phone)){QMessageBox::warning(this,"输入错误","请输入合法的 11 位手机号");return;}if(!PasswordUtils::validPassword(password)){QMessageBox::warning(this,"输入错误","密码长度须为 6～64 位");return;}if(password!=confirm){QMessageBox::warning(this,"输入错误","两次密码输入不一致");return;}sendRequest("auth.user.register",{{"phone",phone},{"password",password},{"confirmPassword",confirm}});}
+void UserWindow::setConnection(QSslSocket *socket, qint64 userId, const QString &nickname, double balance)
+{
+    QObject::disconnect(socket, &QSslSocket::readyRead, nullptr, nullptr);
+    QObject::disconnect(socket, &QSslSocket::disconnected, nullptr, nullptr);
+    m_socket = socket;
+    m_userId = userId;
+    ui->welcomeLabel->setText(nickname + "  余额 ¥" + QString::number(balance, 'f', 2));
+    updateConnectionStatus();
+    connect(m_socket, &QSslSocket::readyRead, this, &UserWindow::readMessages);
+    connect(m_socket, &QSslSocket::disconnected, this, [this]{
+        m_userId = 0;
+        ui->connectionStatusLabel->setText("● 已断开");
+        ui->connectionStatusLabel->setStyleSheet("color:#d85b6a;font-size:12px");
+    });
+    QObject::disconnect(ui->reconnectButton, &QPushButton::clicked, nullptr, nullptr);
+    connect(ui->reconnectButton, &QPushButton::clicked, this, &UserWindow::reconnect);
+    requestMapConfig();
+    refreshStations();
+    sendRequest("user.orders");
+}
+void UserWindow::updateConnectionStatus()
+{
+    if (!m_socket) {
+        ui->connectionStatusLabel->setText("● 未连接");
+        ui->connectionStatusLabel->setStyleSheet("color:#8794a8;font-size:12px");
+    } else if (m_socket->isEncrypted()) {
+        ui->connectionStatusLabel->setText("● 已连接");
+        ui->connectionStatusLabel->setStyleSheet("color:#2ea859;font-size:12px");
+    } else if (m_socket->state() == QAbstractSocket::ConnectingState) {
+        ui->connectionStatusLabel->setText("● 连接中…");
+        ui->connectionStatusLabel->setStyleSheet("color:#e6a817;font-size:12px");
+    } else {
+        ui->connectionStatusLabel->setText("● 未连接");
+        ui->connectionStatusLabel->setStyleSheet("color:#8794a8;font-size:12px");
+    }
+}
+void UserWindow::reconnect()
+{
+    if (m_socket && m_socket->isEncrypted()) {
+        QMessageBox::information(this, "提示", "当前已连接服务器");
+        return;
+    }
+    emit reconnectRequested();
+}
+void UserWindow::sendRequest(const QString &type,const QJsonObject &payload){if(!m_socket||!m_socket->isEncrypted())return;m_socket->write(Protocol::encode(Protocol::request(type,payload,QUuid::createUuid().toString(QUuid::WithoutBraces))));}
 void UserWindow::recharge(){if(m_userId<=0){QMessageBox::information(this,"提示","请先登录");return;}if(ui->rechargePasswordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","充值前必须输入登录密码");return;}sendRequest("wallet.recharge",{{"amount",ui->rechargeSpin->value()},{"password",ui->rechargePasswordEdit->text()}});}
 void UserWindow::refreshStations(){sendRequest("station.list");}
-void UserWindow::refreshAll(){if(!m_socket.isEncrypted())return;refreshStations();if(m_userId>0){sendRequest("user.orders");}}
+void UserWindow::refreshAll(){if(!m_socket||!m_socket->isEncrypted())return;refreshStations();if(m_userId>0){sendRequest("user.orders");}}
 void UserWindow::reserve(){if(ui->chargerCombo->currentIndex()<0){QMessageBox::information(this,"提示","请先选择充电桩");return;}sendRequest("reservation.create",{{"chargerId",ui->chargerCombo->currentData().toLongLong()}});}
 void UserWindow::cancelReservation(){if(m_reservationId>0)sendRequest("reservation.cancel",{{"reservationId",m_reservationId},{"reason","USER_CANCELLED"}});}
 void UserWindow::startCharge()
@@ -165,7 +197,7 @@ void UserWindow::startCharge()
                                {"target",ui->targetSpin->value()}});
 }
 void UserWindow::stopCharge(){if(m_orderId>0)sendRequest("charge.stop",{{"orderId",m_orderId}});}
-void UserWindow::readMessages(){m_buffer.append(m_socket.readAll());QString error;for(const auto&m:Protocol::decode(m_buffer,&error))showResult(m);if(!error.isEmpty())QMessageBox::warning(this,"协议错误",error);}
+void UserWindow::readMessages(){static QByteArray buf;buf.append(m_socket->readAll());QString error;for(const auto&m:Protocol::decode(buf,&error))showResult(m);if(!error.isEmpty())qWarning()<<error;}
 QString UserWindow::mapApiKey() const
 {
     if(!m_mapApiKey.isEmpty()) return m_mapApiKey;
@@ -184,7 +216,7 @@ QString UserWindow::mapApiKey() const
     }
     return QString();
 }
-void UserWindow::requestMapConfig(){ if(m_socket.isEncrypted()) sendRequest("map.config"); }
+void UserWindow::requestMapConfig(){ if(m_socket&&m_socket->isEncrypted()) sendRequest("map.config"); }
 void UserWindow::initMap()
 {
     m_mapJsReady=false;
@@ -429,8 +461,7 @@ void UserWindow::showResult(const QJsonObject &m)
     }
     if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());return;}
     const QJsonObject data=type=="charge.completed"?m.value("payload").toObject():m.value("data").toObject();
-    if(type=="auth.user.result"||type=="auth.user.register.result"){m_userId=data.value("id").toVariant().toLongLong();ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));refreshStations();sendRequest("user.orders");QMessageBox::information(this,"成功",type.contains("register")?"注册成功并已登录":"登录成功");}
-    else if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
+    if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="user.info.result"){ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="station.list.result"){
         const QJsonArray rows=data.value("stations").toArray();

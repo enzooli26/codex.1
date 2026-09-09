@@ -16,8 +16,11 @@ class UserWindow : public QMainWindow
 {
     Q_OBJECT
 public: explicit UserWindow(QWidget *parent=nullptr); ~UserWindow();
-private slots: void connectServer(); void readMessages(); void login(); void registerUser(); void recharge(); void refreshStations(); void refreshAll(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
-    void navigateToStation(int row);
+    void setConnection(QSslSocket *socket, qint64 userId, const QString &nickname, double balance);
+signals:
+    void reconnectRequested();
+private slots: void readMessages(); void recharge(); void refreshStations(); void refreshAll(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
+    void navigateToStation(int row); void reconnect(); void updateConnectionStatus();
 private: void sendRequest(const QString &type,const QJsonObject &payload={}); void showResult(const QJsonObject &message);
     QString mapApiKey() const;
     void requestMapConfig();
@@ -26,7 +29,7 @@ private: void sendRequest(const QString &type,const QJsonObject &payload={}); vo
     void doPlaceSuggestion(const QString &keyword);
     void handleSearchResult(const QJsonObject &data);
     void handleSuggestionResult(const QJsonObject &data);
-    Ui::UserWindow *ui; QSslSocket m_socket; QByteArray m_buffer; qint64 m_userId=0; qint64 m_reservationId=0; qint64 m_orderId=0;
+    Ui::UserWindow *ui; QSslSocket *m_socket=nullptr; qint64 m_userId=0; qint64 m_reservationId=0; qint64 m_orderId=0;
     qint64 m_selectedStationId=0;
     QNetworkAccessManager m_nam;
     QString m_mapApiKey;

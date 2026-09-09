@@ -35,48 +35,34 @@
          <property name="topMargin"><number>16</number></property>
          <property name="rightMargin"><number>14</number></property>
          <property name="bottomMargin"><number>14</number></property>
-         <item><layout class="QHBoxLayout" name="brandLayout">
-          <item><layout class="QVBoxLayout">
-           <item><widget class="QLabel" name="brandLabel"><property name="text"><string>⚡ 悦充</string></property></widget></item>
-           <item><widget class="QLabel" name="sloganLabel"><property name="text"><string>轻松找桩，安心充电</string></property></widget></item>
+          <item><layout class="QHBoxLayout" name="brandLayout">
+           <item><layout class="QVBoxLayout">
+            <item><widget class="QLabel" name="brandLabel"><property name="text"><string>⚡ 悦充</string></property></widget></item>
+            <item><widget class="QLabel" name="sloganLabel"><property name="text"><string>轻松找桩，安心充电</string></property></widget></item>
+           </layout></item>
           </layout></item>
-          <item><spacer name="brandSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>30</width><height>20</height></size></property></spacer></item>
-          <item><widget class="QLabel" name="statusLabel"><property name="text"><string>● 未连接</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set></property></widget></item>
-         </layout></item>
-         <item><widget class="QFrame" name="connectionCard"><property name="class" stdset="0"><string>card</string></property>
-          <layout class="QGridLayout" name="connectionLayout">
-           <item row="0" column="0" colspan="3"><widget class="QLabel" name="connectionTitle"><property name="text"><string>服务器连接</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
-           <item row="1" column="0"><widget class="QLineEdit" name="hostEdit"><property name="text"><string>127.0.0.1</string></property><property name="placeholderText"><string>服务器地址</string></property></widget></item>
-           <item row="1" column="1"><widget class="QSpinBox" name="portSpin"><property name="maximum"><number>65535</number></property><property name="value"><number>9527</number></property></widget></item>
-           <item row="1" column="2"><widget class="QPushButton" name="connectButton"><property name="text"><string>连接</string></property></widget></item>
-          </layout>
-         </widget></item>
-         <item><widget class="QFrame" name="accountCard"><property name="class" stdset="0"><string>card</string></property>
-          <layout class="QVBoxLayout" name="accountLayout">
-           <item><layout class="QHBoxLayout">
-            <item><widget class="QLabel" name="accountTitle"><property name="text"><string>我的账户</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
-            <item><spacer name="accountSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
-            <item><widget class="QLabel" name="welcomeLabel"><property name="text"><string>尚未登录</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set></property></widget></item>
-           </layout></item>
-           <item><layout class="QGridLayout" name="loginLayout">
-            <item row="0" column="0"><widget class="QLineEdit" name="phoneEdit"><property name="placeholderText"><string>11 位手机号</string></property><property name="maxLength"><number>11</number></property></widget></item>
-            <item row="0" column="1"><widget class="QLineEdit" name="passwordEdit"><property name="placeholderText"><string>密码（至少 6 位）</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
-            <item row="1" column="0"><widget class="QLineEdit" name="confirmPasswordEdit"><property name="placeholderText"><string>注册时确认密码</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
-            <item row="1" column="1"><layout class="QHBoxLayout">
-             <item><widget class="QPushButton" name="loginButton"><property name="text"><string>登录</string></property></widget></item>
-             <item><widget class="QPushButton" name="registerButton"><property name="text"><string>注册</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
-            </layout></item>
-           </layout></item>
-           <item><layout class="QVBoxLayout" name="walletLayout">
-            <item><widget class="QLabel" name="walletText"><property name="text"><string>模拟钱包充值（需验证密码）</string></property></widget></item>
+          <item><widget class="QFrame" name="accountCard"><property name="class" stdset="0"><string>card</string></property>
+           <layout class="QVBoxLayout" name="accountLayout">
             <item><layout class="QHBoxLayout">
-             <item><widget class="QDoubleSpinBox" name="rechargeSpin"><property name="maximum"><double>10000.000000000000000</double></property><property name="value"><double>100.000000000000000</double></property><property name="prefix"><string>¥ </string></property></widget></item>
-             <item><widget class="QLineEdit" name="rechargePasswordEdit"><property name="placeholderText"><string>登录密码</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
-             <item><widget class="QPushButton" name="rechargeButton"><property name="text"><string>充值</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+             <item><widget class="QLabel" name="accountTitle"><property name="text"><string>我的账户</string></property><property name="class" stdset="0"><string>sectionTitle</string></property></widget></item>
+             <item><spacer name="accountSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+             <item><widget class="QLabel" name="welcomeLabel"><property name="text"><string>尚未登录</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set></property></widget></item>
             </layout></item>
-           </layout></item>
-          </layout>
-         </widget></item>
+            <item><layout class="QHBoxLayout" name="connectionLayout">
+             <item><widget class="QLabel" name="connectionStatusLabel"><property name="text"><string>● 未连接</string></property><property name="styleSheet"><string notr="true">color:#8794a8;font-size:12px</string></property></widget></item>
+             <item><spacer name="connectionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property></spacer></item>
+             <item><widget class="QPushButton" name="reconnectButton"><property name="text"><string>重新连接</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+            </layout></item>
+            <item><layout class="QVBoxLayout" name="walletLayout">
+             <item><widget class="QLabel" name="walletText"><property name="text"><string>模拟钱包充值（需验证密码）</string></property></widget></item>
+             <item><layout class="QHBoxLayout">
+              <item><widget class="QDoubleSpinBox" name="rechargeSpin"><property name="maximum"><double>10000.000000000000000</double></property><property name="value"><double>100.000000000000000</double></property><property name="prefix"><string>¥ </string></property></widget></item>
+              <item><widget class="QLineEdit" name="rechargePasswordEdit"><property name="placeholderText"><string>登录密码</string></property><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+              <item><widget class="QPushButton" name="rechargeButton"><property name="text"><string>充值</string></property><property name="class" stdset="0"><string>secondary</string></property></widget></item>
+             </layout></item>
+            </layout></item>
+           </layout>
+          </widget></item>
          <item><widget class="QFrame" name="stationCard"><property name="class" stdset="0"><string>card</string></property>
           <layout class="QVBoxLayout" name="stationLayout">
            <item><layout class="QHBoxLayout">

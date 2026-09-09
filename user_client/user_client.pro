@@ -19,9 +19,15 @@ QTE_DEV = $$(QTE_DEV_DIR)
 CONFIG += c++11
 TEMPLATE = app
 TARGET = ev_user_client
-SOURCES += main.cpp userwindow.cpp mapbridge.cpp maphttpserver.cpp
-HEADERS += userwindow.h mapbridge.h maphttpserver.h
-FORMS += userwindow.ui
+SOURCES += main.cpp userwindow.cpp mapbridge.cpp maphttpserver.cpp \
+    login.cpp \
+    register.cpp
+HEADERS += userwindow.h mapbridge.h maphttpserver.h \
+    login.h \
+    register.h
+FORMS += userwindow.ui \
+    login.ui \
+    register.ui
 RESOURCES += resources/map.qrc
 include(../common/common.pri)
 
