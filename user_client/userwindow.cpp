@@ -21,6 +21,12 @@
 #include <QWebChannel>
 #include <QTimer>
 #include <QDebug>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QFormLayout>
+#include <QTabWidget>
+#include <QSpinBox>
+#include <QFrame>
 #include "mapbridge.h"
 #include "maphttpserver.h"
 
@@ -38,6 +44,7 @@ protected:
 UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindow)
 {
     ui->setupUi(this);
+    setupDesktopUi();
     m_navWebView=new QWebEngineView(ui->navPage);
     m_navWebView->setMinimumHeight(200);
     m_navWebView->setPage(new LogPage(m_navWebView));
@@ -101,8 +108,8 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
         }
     });
     connect(&m_socket,&QSslSocket::readyRead,this,&UserWindow::readMessages);
-    connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->statusLabel->setText("🔒 TLS 已连接");ui->statusLabel->setStyleSheet("color:#2ca777;font-weight:600"); requestMapConfig();});
-    connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_userId=0;ui->statusLabel->setText("● 已断开");ui->statusLabel->setStyleSheet("color:#d85b6a;font-weight:600");});
+    connect(&m_socket,&QSslSocket::encrypted,this,[this]{ui->statusLabel->setText("🔒 TLS 已连接");ui->statusLabel->setStyleSheet("color:#2ca777;font-weight:600");setAuthStatus("TLS 安全连接已建立",true);requestMapConfig();});
+    connect(&m_socket,&QSslSocket::disconnected,this,[this]{m_userId=0;ui->statusLabel->setText("● 已断开");ui->statusLabel->setStyleSheet("color:#d85b6a;font-weight:600");setAuthStatus("服务器连接已断开",false);});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){QMessageBox::warning(this,"TLS 错误","服务器证书校验失败："+m_socket.errorString());});
     connect(ui->stationTable,&QTableWidget::cellClicked,this,[this](int row,int col){if(col==4)navigateToStation(row);});
     connect(ui->navSearchEdit,&QLineEdit::textChanged,this,[this]{ m_suggestionTimer->start(); });
@@ -133,6 +140,104 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     });
 }
 UserWindow::~UserWindow(){delete ui;}
+
+void UserWindow::setupDesktopUi()
+{
+    setMinimumSize(980,640);
+    resize(1180,760);
+    ui->phoneShell->setStyleSheet("QFrame#phoneShell{background:#f6f8fc;border:1px solid #dce4ef;border-radius:14px}");
+    ui->connectionCard->hide();
+    ui->phoneEdit->hide();ui->passwordEdit->hide();ui->confirmPasswordEdit->hide();
+    ui->loginButton->hide();ui->registerButton->hide();ui->footerLabel->hide();
+
+    m_stationFilterEdit=new QLineEdit(ui->stationCard);
+    m_stationFilterEdit->setPlaceholderText("搜索站名、地址或充电桩编号…");
+    m_stationFilterEdit->setClearButtonEnabled(true);
+    ui->stationLayout->insertWidget(1,m_stationFilterEdit);
+    connect(m_stationFilterEdit,&QLineEdit::textChanged,this,&UserWindow::applyStationFilter);
+
+    auto *logoutButton=new QPushButton("退出登录",ui->accountCard);
+    logoutButton->setProperty("class","danger");
+    ui->accountLayout->addWidget(logoutButton);
+    connect(logoutButton,&QPushButton::clicked,this,&UserWindow::logout);
+
+    ui->scrollLayout->removeWidget(ui->accountCard);
+    ui->scrollLayout->removeWidget(ui->stationCard);
+    ui->scrollLayout->removeWidget(ui->chargeCard);
+    auto *workspace=new QWidget(ui->phoneShell);
+    auto *workspaceLayout=new QHBoxLayout(workspace);
+    workspaceLayout->setContentsMargins(0,0,0,0);workspaceLayout->setSpacing(12);
+    auto *sidePanel=new QWidget(workspace);
+    auto *sideLayout=new QVBoxLayout(sidePanel);
+    sideLayout->setContentsMargins(0,0,0,0);sideLayout->setSpacing(12);
+    sideLayout->addWidget(ui->accountCard);sideLayout->addWidget(ui->chargeCard);sideLayout->addStretch();
+    workspaceLayout->addWidget(ui->stationCard,2);workspaceLayout->addWidget(sidePanel,1);
+    ui->scrollLayout->insertWidget(2,workspace,1);
+
+    m_authPage=new QWidget;
+    m_authPage->setObjectName("authPage");
+    m_authPage->setStyleSheet("QWidget#authPage{background:#eef3f9;color:#23314a;font-family:'Microsoft YaHei';font-size:14px} QFrame#authHero{background:#2858c7;border-radius:22px} QFrame#authPanel{background:white;border:1px solid #dfe6f0;border-radius:18px} QLineEdit,QSpinBox{background:#f7f9fd;color:#23314a;border:1px solid #d9e1ec;border-radius:8px;padding:9px;min-height:24px} QLineEdit:focus,QSpinBox:focus{border:1px solid #416fe3;background:white} QPushButton{background:#416fe3;color:white;border:0;border-radius:9px;padding:10px 16px;font-weight:600} QPushButton:hover{background:#315fd1} QTabWidget::pane{border:0} QTabBar::tab{padding:10px 24px;color:#73819a} QTabBar::tab:selected{color:#315fd1;font-weight:700;border-bottom:2px solid #416fe3}");
+    auto *authRoot=new QHBoxLayout(m_authPage);authRoot->setContentsMargins(64,52,64,52);authRoot->setSpacing(28);
+    auto *hero=new QFrame(m_authPage);hero->setObjectName("authHero");hero->setMinimumWidth(340);
+    auto *heroLayout=new QVBoxLayout(hero);heroLayout->setContentsMargins(42,42,42,42);
+    auto *heroBrand=new QLabel("⚡ 悦充 PC 客户端",hero);heroBrand->setStyleSheet("background:transparent;color:#ffffff;font-size:28px;font-weight:700");
+    auto *heroText=new QLabel("站点查询、预约充电与账户服务\n统一集中在宽屏工作台中。",hero);heroText->setStyleSheet("background:transparent;color:#dce7ff;font-size:16px;line-height:1.6");heroText->setWordWrap(true);
+    auto *heroSecure=new QLabel("✓ TLS 加密通信\n✓ 订单状态实时同步\n✓ 充电数据可视化",hero);heroSecure->setStyleSheet("background:transparent;color:#ffffff;font-size:15px;line-height:1.8");
+    heroLayout->addWidget(heroBrand);heroLayout->addSpacing(18);heroLayout->addWidget(heroText);heroLayout->addStretch();heroLayout->addWidget(heroSecure);
+    auto *panel=new QFrame(m_authPage);panel->setObjectName("authPanel");panel->setMaximumWidth(520);panel->setMinimumWidth(420);
+    auto *panelLayout=new QVBoxLayout(panel);panelLayout->setContentsMargins(34,30,34,30);panelLayout->setSpacing(14);
+    auto *title=new QLabel("登录悦充",panel);title->setStyleSheet("font-size:25px;font-weight:700;color:#25324a");
+    auto *subtitle=new QLabel("连接服务器后登录，进入桌面管理式工作台",panel);subtitle->setStyleSheet("color:#7c8aa1");
+    panelLayout->addWidget(title);panelLayout->addWidget(subtitle);
+    auto *connectionRow=new QHBoxLayout;
+    m_authHostEdit=new QLineEdit("127.0.0.1",panel);m_authHostEdit->setPlaceholderText("服务器 IP");
+    m_authPortSpin=new QSpinBox(panel);m_authPortSpin->setRange(1,65535);m_authPortSpin->setValue(9527);
+    auto *connectButton=new QPushButton("TLS 连接",panel);
+    connectionRow->addWidget(m_authHostEdit,2);connectionRow->addWidget(m_authPortSpin);connectionRow->addWidget(connectButton);
+    panelLayout->addLayout(connectionRow);
+    m_authStatusLabel=new QLabel("● 请先连接服务器",panel);m_authStatusLabel->setStyleSheet("color:#d85b6a;font-weight:600");panelLayout->addWidget(m_authStatusLabel);
+    auto *tabs=new QTabWidget(panel);
+    auto *loginTab=new QWidget(tabs);auto *loginForm=new QVBoxLayout(loginTab);loginForm->setContentsMargins(0,18,0,0);loginForm->setSpacing(12);
+    m_authLoginPhone=new QLineEdit(loginTab);m_authLoginPhone->setPlaceholderText("11 位手机号");m_authLoginPhone->setMaxLength(11);
+    m_authLoginPassword=new QLineEdit(loginTab);m_authLoginPassword->setPlaceholderText("密码");m_authLoginPassword->setEchoMode(QLineEdit::Password);
+    m_authLoginButton=new QPushButton("登录并进入工作台",loginTab);m_authLoginButton->setEnabled(false);
+    loginForm->addWidget(m_authLoginPhone);loginForm->addWidget(m_authLoginPassword);loginForm->addWidget(m_authLoginButton);loginForm->addStretch();
+    auto *registerTab=new QWidget(tabs);auto *registerForm=new QVBoxLayout(registerTab);registerForm->setContentsMargins(0,18,0,0);registerForm->setSpacing(12);
+    m_authRegisterPhone=new QLineEdit(registerTab);m_authRegisterPhone->setPlaceholderText("11 位手机号");m_authRegisterPhone->setMaxLength(11);
+    m_authRegisterPassword=new QLineEdit(registerTab);m_authRegisterPassword->setPlaceholderText("设置密码（6～64 位）");m_authRegisterPassword->setEchoMode(QLineEdit::Password);
+    m_authRegisterConfirm=new QLineEdit(registerTab);m_authRegisterConfirm->setPlaceholderText("再次输入密码");m_authRegisterConfirm->setEchoMode(QLineEdit::Password);
+    m_authRegisterButton=new QPushButton("注册并进入工作台",registerTab);m_authRegisterButton->setEnabled(false);
+    registerForm->addWidget(m_authRegisterPhone);registerForm->addWidget(m_authRegisterPassword);registerForm->addWidget(m_authRegisterConfirm);registerForm->addWidget(m_authRegisterButton);registerForm->addStretch();
+    tabs->addTab(loginTab,"登录");tabs->addTab(registerTab,"注册");panelLayout->addWidget(tabs,1);
+    authRoot->addWidget(hero,1);authRoot->addWidget(panel,1);
+    ui->stackedWidget->addWidget(m_authPage);ui->stackedWidget->setCurrentWidget(m_authPage);
+
+    connect(connectButton,&QPushButton::clicked,this,[this]{ui->hostEdit->setText(m_authHostEdit->text());ui->portSpin->setValue(m_authPortSpin->value());setAuthStatus("正在建立 TLS 连接…",false);connectServer();});
+    connect(m_authLoginButton,&QPushButton::clicked,this,[this]{ui->phoneEdit->setText(m_authLoginPhone->text());ui->passwordEdit->setText(m_authLoginPassword->text());login();});
+    connect(m_authRegisterButton,&QPushButton::clicked,this,[this]{ui->phoneEdit->setText(m_authRegisterPhone->text());ui->passwordEdit->setText(m_authRegisterPassword->text());ui->confirmPasswordEdit->setText(m_authRegisterConfirm->text());registerUser();});
+    connect(m_authLoginPassword,&QLineEdit::returnPressed,m_authLoginButton,&QPushButton::click);
+    connect(m_authRegisterConfirm,&QLineEdit::returnPressed,m_authRegisterButton,&QPushButton::click);
+}
+
+void UserWindow::setAuthStatus(const QString &text,bool connected)
+{
+    if(!m_authStatusLabel)return;
+    m_authStatusLabel->setText((connected?"● ":"○ ")+text);
+    m_authStatusLabel->setStyleSheet(connected?"color:#26936f;font-weight:600":"color:#d85b6a;font-weight:600");
+    m_authLoginButton->setEnabled(connected);m_authRegisterButton->setEnabled(connected);
+}
+
+void UserWindow::logout()
+{
+    if(m_orderId>0){QMessageBox::information(this,"暂时无法退出","充电进行中，请先正常结束并结算订单");return;}
+    m_userId=0;m_reservationId=0;m_orderId=0;m_buffer.clear();
+    ui->welcomeLabel->setText("尚未登录");ui->chargeStatusLabel->setText("当前无充电订单");
+    ui->stationTable->setRowCount(0);m_stationRows=QJsonArray();m_stationCoords.clear();
+    m_socket.abort();ui->stackedWidget->setCurrentWidget(m_authPage);
+    m_authLoginPassword->clear();m_authRegisterPassword->clear();m_authRegisterConfirm->clear();
+    setAuthStatus("已退出，请重新连接服务器",false);
+}
+
 void UserWindow::connectServer(){m_socket.abort();QString error;if(!SecureConnect::connectToServer(&m_socket,ui->hostEdit->text().trimmed(),static_cast<quint16>(ui->portSpin->value()),&error))QMessageBox::warning(this,"连接失败",error);}
 void UserWindow::sendRequest(const QString &type,const QJsonObject &payload){if(!m_socket.isEncrypted()){QMessageBox::information(this,"提示","请先建立 TLS 安全连接");return;}m_socket.write(Protocol::encode(Protocol::request(type,payload,QUuid::createUuid().toString(QUuid::WithoutBraces))));}
 void UserWindow::login(){const QString phone=ui->phoneEdit->text().trimmed(),password=ui->passwordEdit->text();if(!PasswordUtils::validPhone(phone)){QMessageBox::warning(this,"输入错误","请输入合法的 11 位手机号");return;}if(password.isEmpty()){QMessageBox::warning(this,"输入错误","密码不能为空");return;}sendRequest("auth.user",{{"phone",phone},{"password",password}});}
@@ -140,6 +245,33 @@ void UserWindow::registerUser(){const QString phone=ui->phoneEdit->text().trimme
 void UserWindow::recharge(){if(m_userId<=0){QMessageBox::information(this,"提示","请先登录");return;}if(ui->rechargePasswordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","充值前必须输入登录密码");return;}sendRequest("wallet.recharge",{{"amount",ui->rechargeSpin->value()},{"password",ui->rechargePasswordEdit->text()}});}
 void UserWindow::refreshStations(){sendRequest("station.list");}
 void UserWindow::refreshAll(){if(!m_socket.isEncrypted())return;refreshStations();if(m_userId>0){sendRequest("user.orders");sendRequest("user.info");}}
+void UserWindow::applyStationFilter()
+{
+    const QString keyword=m_stationFilterEdit?m_stationFilterEdit->text().trimmed():QString();
+    QJsonArray filtered;
+    for(const auto &value:m_stationRows){
+        const QJsonObject row=value.toObject();
+        const QString searchable=row.value("name").toString()+" "+row.value("address").toString()+" "+row.value("chargerCode").toString();
+        if(keyword.isEmpty()||searchable.contains(keyword,Qt::CaseInsensitive))filtered.append(row);
+    }
+    renderStationRows(filtered);
+}
+void UserWindow::renderStationRows(const QJsonArray &rows)
+{
+    ui->stationTable->clearContents();ui->stationTable->setRowCount(rows.size());m_stationCoords.clear();
+    for(int r=0;r<rows.size();++r){
+        const auto s=rows[r].toObject();
+        m_stationCoords[r]={s.value("longitude").toDouble(),s.value("latitude").toDouble(),s.value("name").toString(),s.value("address").toString()};
+        const QString stationText=s.value("chargerCode").toString().isEmpty()?s.value("name").toString():s.value("name").toString()+" · "+s.value("chargerCode").toString();
+        const QStringList vals={stationText,s.value("address").toString(),QString::number(s.value("price").toDouble(),'f',2),QString::number(s.value("idle").toInt())+"/"+QString::number(s.value("total").toInt())};
+        for(int c=0;c<vals.size();++c){auto *item=new QTableWidgetItem(vals[c]);item->setData(Qt::UserRole,s.value("chargerId").toVariant());ui->stationTable->setItem(r,c,item);}
+        auto *button=new QPushButton("导航");button->setFlat(true);button->setCursor(Qt::PointingHandCursor);
+        button->setStyleSheet("QPushButton{color:#416fe3;font-weight:600;border:none;background:transparent;padding:2px 6px;min-height:0;border-radius:0;text-decoration:underline}QPushButton:hover{color:#2457d6}");
+        button->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);button->adjustSize();ui->stationTable->setCellWidget(r,4,button);
+        connect(button,&QPushButton::clicked,this,[this,r]{navigateToStation(r);});
+    }
+    renderStationMarkers();
+}
 void UserWindow::reserve(){auto *item=ui->stationTable->currentItem();if(!item){QMessageBox::information(this,"提示","请先选择站点");return;}sendRequest("reservation.create",{{"chargerId",item->data(Qt::UserRole).toLongLong()}});}
 void UserWindow::cancelReservation(){if(m_reservationId>0)sendRequest("reservation.cancel",{{"reservationId",m_reservationId},{"reason","USER_CANCELLED"}});}
 void UserWindow::startCharge()
@@ -438,34 +570,11 @@ void UserWindow::showResult(const QJsonObject &m)
     }
     if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());return;}
     const QJsonObject data=type=="charge.completed"?m.value("payload").toObject():m.value("data").toObject();
-    if(type=="auth.user.result"||type=="auth.user.register.result"){m_userId=data.value("id").toVariant().toLongLong();ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));refreshStations();sendRequest("user.orders");QMessageBox::information(this,"成功",type.contains("register")?"注册成功并已登录":"登录成功");}
+    if(type=="auth.user.result"||type=="auth.user.register.result"){m_userId=data.value("id").toVariant().toLongLong();ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));ui->stackedWidget->setCurrentWidget(ui->mainPage);m_authLoginPassword->clear();m_authRegisterPassword->clear();m_authRegisterConfirm->clear();refreshStations();sendRequest("user.orders");QMessageBox::information(this,"成功",type.contains("register")?"注册成功并已登录":"登录成功");}
     else if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="user.info.result"){ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="station.list.result"){
-        const QJsonArray rows=data.value("stations").toArray();
-        ui->stationTable->setRowCount(rows.size());
-        m_stationCoords.clear();
-        for(int r=0;r<rows.size();++r){
-            const auto s=rows[r].toObject();
-            m_stationCoords[r]={s.value("longitude").toDouble(),s.value("latitude").toDouble(),s.value("name").toString(),s.value("address").toString()};
-            QStringList vals={s.value("name").toString(),s.value("address").toString(),QString::number(s.value("price").toDouble(),'f',2),QString::number(s.value("idle").toInt())+"/"+QString::number(s.value("total").toInt())};
-            for(int c=0;c<vals.size();++c){
-                auto *it=new QTableWidgetItem(vals[c]);
-                it->setData(Qt::UserRole,s.value("chargerId").toVariant());
-                ui->stationTable->setItem(r,c,it);
-            }
-            auto *btn=new QPushButton("导航");
-            btn->setFlat(true);
-            btn->setCursor(Qt::PointingHandCursor);
-            btn->setStyleSheet("QPushButton{color:#416fe3;font-weight:600;border:none;background:transparent;"
-                               "padding:2px 6px;min-height:0;border-radius:0;text-decoration:underline;}"
-                               "QPushButton:hover{color:#2457d6}");
-            btn->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-            btn->adjustSize();
-            ui->stationTable->setCellWidget(r,4,btn);
-            const int r2=r; connect(btn,&QPushButton::clicked,this,[this,r2]{navigateToStation(r2);});
-        }
-        renderStationMarkers();
+        m_stationRows=data.value("stations").toArray();applyStationFilter();
     }
     else if(type=="user.orders.result"){qint64 activeId=0;for(const auto &value:data.value("items").toArray()){const QJsonObject order=value.toObject();if(order.value("status").toString()=="CHARGING"){activeId=order.value("id").toVariant().toLongLong();break;}}if(activeId>0){m_orderId=activeId;ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}else if(m_orderId>0){m_orderId=0;ui->chargeStatusLabel->setText("当前无充电订单");}}
     else if(type=="reservation.create.result"){m_reservationId=data.value("reservationId").toVariant().toLongLong();QMessageBox::information(this,"预约成功","预约有效期 20 分钟");}

@@ -10,9 +10,10 @@ ApplicationWindow {
     property color primary: "#3F6FE5"
     property color ink: "#25324A"
     property color muted: "#7C8AA1"
+    property bool authRegisterMode: false
 
     header: Rectangle {
-        height: 92; gradient: Gradient { GradientStop { position: 0; color: "#3567DE" } GradientStop { position: 1; color: "#6C91ED" } }
+        visible: mobileClient.loggedIn; height: visible ? 92 : 0; gradient: Gradient { GradientStop { position: 0; color: "#3567DE" } GradientStop { position: 1; color: "#6C91ED" } }
         RowLayout { anchors.fill: parent; anchors.margins: 20
             ColumnLayout { spacing: 1
                 Label { text: ["悦充首页","附近充电站","充电中心","个人中心"][window.currentTab]; color: "white"; font.pixelSize: 23; font.bold: true }
@@ -26,7 +27,7 @@ ApplicationWindow {
     }
 
     StackLayout {
-        anchors.top: parent.top; anchors.bottom: bottomBar.top; anchors.left: parent.left; anchors.right: parent.right; currentIndex: window.currentTab
+        visible: mobileClient.loggedIn; anchors.top: parent.top; anchors.bottom: bottomBar.top; anchors.left: parent.left; anchors.right: parent.right; currentIndex: window.currentTab
 
         ScrollView { id: homeScroll; clip: true; contentWidth: availableWidth
             ColumnLayout { width: homeScroll.availableWidth; spacing: 14
@@ -122,12 +123,13 @@ ApplicationWindow {
                         RowLayout{Layout.fillWidth:true;TextField{id:portField;Layout.fillWidth:true;text:"9527";inputMethodHints:Qt.ImhDigitsOnly;validator:IntValidator{bottom:1;top:65535}} Button{text:mobileClient.connected?"重新连接":"TLS 连接";onClicked:mobileClient.connectServer(hostField.text,Number(portField.text))}}
                     }
                 }
-                Card { Layout.fillWidth:true;Layout.leftMargin:14;Layout.rightMargin:14;Layout.preferredHeight:mobileClient.loggedIn?150:170
+                Card { Layout.fillWidth:true;Layout.leftMargin:14;Layout.rightMargin:14;Layout.preferredHeight:mobileClient.loggedIn?205:170
                     ColumnLayout { anchors.fill:parent;anchors.margins:16;spacing:9
                         Label{text:"账户";color:ink;font.pixelSize:17;font.bold:true}
                         Label{visible:mobileClient.loggedIn;text:mobileClient.userText+"    余额 ¥"+mobileClient.balance.toFixed(2);color:primary;font.pixelSize:18;font.bold:true}
                         RowLayout{visible:!mobileClient.loggedIn;Layout.fillWidth:true;Button{Layout.fillWidth:true;text:"登录";enabled:mobileClient.connected;highlighted:true;onClicked:loginDialog.open()} Button{Layout.fillWidth:true;text:"注册";enabled:mobileClient.connected;onClicked:registerDialog.open()}}
                         Button{visible:mobileClient.loggedIn;Layout.fillWidth:true;text:"账户充值";onClicked:rechargeDialog.open()}
+                        Button{visible:mobileClient.loggedIn;Layout.fillWidth:true;text:"退出登录";flat:true;onClicked:mobileClient.logout()}
                         Label{Layout.fillWidth:true;text:"连续 5 次密码错误将锁定账户";color:"#B16A32";font.pixelSize:12;horizontalAlignment:Text.AlignHCenter}
                     }
                 }
@@ -140,10 +142,51 @@ ApplicationWindow {
         }
     }
 
-    Rectangle { id:bottomBar;anchors.left:parent.left;anchors.right:parent.right;anchors.bottom:parent.bottom;height:72;color:"white";border.color:"#E3E8F0"
+    Rectangle { id:bottomBar;visible:mobileClient.loggedIn;anchors.left:parent.left;anchors.right:parent.right;anchors.bottom:parent.bottom;height:visible?72:0;color:"white";border.color:"#E3E8F0"
         RowLayout { anchors.fill:parent;anchors.leftMargin:10;anchors.rightMargin:10;spacing:0
             Repeater { model:[{name:"首页",icon:"⌂"},{name:"找桩",icon:"⌖"},{name:"充电",icon:"⚡"},{name:"我的",icon:"●"}]
                 delegate:Item{Layout.fillWidth:true;Layout.fillHeight:true;Column{anchors.centerIn:parent;spacing:3;Label{anchors.horizontalCenter:parent.horizontalCenter;text:modelData.icon;color:window.currentTab===index?primary:"#9AA6B8";font.pixelSize:20}Label{anchors.horizontalCenter:parent.horizontalCenter;text:modelData.name;color:window.currentTab===index?primary:"#7F8CA0";font.bold:window.currentTab===index}}MouseArea{anchors.fill:parent;onClicked:{window.currentTab=index;if(index===1&&mobileClient.connected)mobileClient.refreshStations();if(index===3&&mobileClient.loggedIn)mobileClient.refreshOrders()}}}
+            }
+        }
+    }
+
+    Rectangle {
+        id: authPage; anchors.fill: parent; z: 30; visible: !mobileClient.loggedIn; color: "#F2F5FA"
+        ScrollView { anchors.fill: parent; contentWidth: availableWidth; clip: true
+            ColumnLayout { width: parent.width; spacing: 14
+                Item { Layout.preferredHeight: 22 }
+                ColumnLayout { Layout.fillWidth: true; Layout.leftMargin: 26; Layout.rightMargin: 26; spacing: 3
+                    Rectangle { Layout.preferredWidth: 54; Layout.preferredHeight: 54; radius: 17; color: primary
+                        Label { anchors.centerIn: parent; text: "⚡"; color: "white"; font.pixelSize: 27 }
+                    }
+                    Label { text: "悦充"; color: ink; font.pixelSize: 30; font.bold: true }
+                    Label { text: "安全连接，轻松开启每一次充电"; color: muted; font.pixelSize: 13 }
+                }
+                Card { Layout.fillWidth: true; Layout.leftMargin: 18; Layout.rightMargin: 18; Layout.preferredHeight: 168
+                    ColumnLayout { anchors.fill: parent; anchors.margins: 16; spacing: 9
+                        RowLayout { Layout.fillWidth: true; Label { text: "服务器"; color: ink; font.pixelSize: 16; font.bold: true } Item { Layout.fillWidth: true } Label { text: mobileClient.connected ? "● TLS 已连接" : "○ 未连接"; color: mobileClient.connected ? "#23906C" : "#C45667"; font.bold: true } }
+                        TextField { id: authHostField; Layout.fillWidth: true; text: "127.0.0.1"; placeholderText: "服务器 IP" }
+                        RowLayout { Layout.fillWidth: true
+                            TextField { id: authPortField; Layout.fillWidth: true; text: "9527"; placeholderText: "端口"; inputMethodHints: Qt.ImhDigitsOnly; validator: IntValidator { bottom: 1; top: 65535 } }
+                            Button { text: mobileClient.connected ? "重新连接" : "TLS 连接"; highlighted: true; onClicked: mobileClient.connectServer(authHostField.text, Number(authPortField.text)) }
+                        }
+                    }
+                }
+                Card { Layout.fillWidth: true; Layout.leftMargin: 18; Layout.rightMargin: 18; Layout.preferredHeight: authRegisterMode ? 330 : 270
+                    ColumnLayout { anchors.fill: parent; anchors.margins: 18; spacing: 11
+                        RowLayout { Layout.fillWidth: true
+                            Button { Layout.fillWidth: true; text: "登录"; flat: authRegisterMode; highlighted: !authRegisterMode; onClicked: authRegisterMode=false }
+                            Button { Layout.fillWidth: true; text: "注册"; flat: !authRegisterMode; highlighted: authRegisterMode; onClicked: authRegisterMode=true }
+                        }
+                        Label { text: authRegisterMode ? "创建新账户" : "欢迎回来"; color: ink; font.pixelSize: 20; font.bold: true }
+                        TextField { id: authPhone; Layout.fillWidth: true; placeholderText: "11 位手机号"; maximumLength: 11; inputMethodHints: Qt.ImhDigitsOnly }
+                        TextField { id: authPassword; Layout.fillWidth: true; placeholderText: authRegisterMode ? "设置密码（6～64 位）" : "密码"; echoMode: TextInput.Password }
+                        TextField { id: authConfirmPassword; visible: authRegisterMode; Layout.fillWidth: true; placeholderText: "再次输入密码"; echoMode: TextInput.Password }
+                        Button { Layout.fillWidth: true; highlighted: true; enabled: mobileClient.connected; text: authRegisterMode ? "注册并进入" : "登录并进入"; onClicked: { if(authRegisterMode) mobileClient.registerUser(authPhone.text,authPassword.text,authConfirmPassword.text); else mobileClient.login(authPhone.text,authPassword.text) } }
+                        Label { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: mobileClient.connected ? "密码将通过 TLS 加密传输" : "请先建立 TLS 安全连接"; color: mobileClient.connected ? "#23906C" : muted; font.pixelSize: 12 }
+                    }
+                }
+                Item { Layout.preferredHeight: 18 }
             }
         }
     }

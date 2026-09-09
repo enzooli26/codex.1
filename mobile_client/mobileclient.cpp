@@ -14,7 +14,7 @@ MobileClient::MobileClient(QObject *parent):QObject(parent)
     connect(&m_socket,&QSslSocket::readyRead,this,&MobileClient::readMessages);
     connect(&m_socket,&QSslSocket::encrypted,this,[this]{emit connectedChanged();emit notice(QStringLiteral("TLS 安全连接成功"),false);});
     connect(&m_socket,&QSslSocket::disconnected,this,[this]{emit connectedChanged();emit notice(QStringLiteral("服务器连接已断开"),true);});
-    connect(&m_socket,QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),this,[this](QAbstractSocket::SocketError){emit notice(m_socket.errorString(),true);});
+    connect(&m_socket,&QAbstractSocket::errorOccurred,this,[this](QAbstractSocket::SocketError){emit notice(m_socket.errorString(),true);});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){emit notice(QStringLiteral("TLS 证书校验失败：")+m_socket.errorString(),true);});
 }
 
@@ -37,6 +37,16 @@ void MobileClient::login(const QString &phone,const QString &password)
     send(QStringLiteral("auth.user"),{{QStringLiteral("phone"),phone.trimmed()},{QStringLiteral("password"),password}});
 }
 void MobileClient::registerUser(const QString &phone,const QString &password,const QString &confirmPassword){if(!PasswordUtils::validPhone(phone.trimmed())){emit notice(QStringLiteral("请输入正确的 11 位手机号"),true);return;}if(!PasswordUtils::validPassword(password)){emit notice(QStringLiteral("密码长度须为 6～64 位"),true);return;}if(password!=confirmPassword){emit notice(QStringLiteral("两次密码输入不一致"),true);return;}send(QStringLiteral("auth.user.register"),{{QStringLiteral("phone"),phone.trimmed()},{QStringLiteral("password"),password},{QStringLiteral("confirmPassword"),confirmPassword}});}
+void MobileClient::logout()
+{
+    if(charging()){emit notice(QStringLiteral("充电进行中，请先结束并结算订单"),true);return;}
+    m_liveTimer.stop();m_socket.abort();m_buffer.clear();m_allStations.clear();m_stations.clear();m_orders.clear();m_liveSamples.clear();
+    m_userId=0;m_reservationId=0;m_orderId=0;m_selectedIndex=-1;m_balance=0;
+    m_userText=QStringLiteral("请先登录");m_chargeStatus=QStringLiteral("尚未开始充电");m_remainingText=QStringLiteral("--");
+    m_voltage=0;m_current=0;m_power=0;m_soc=0;
+    emit connectedChanged();emit loggedInChanged();emit accountChanged();emit stationsChanged();emit ordersChanged();emit selectedIndexChanged();emit chargeChanged();emit reservationChanged();emit liveChanged();
+    emit notice(QStringLiteral("已安全退出"),false);
+}
 void MobileClient::recharge(double amount,const QString &password){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}if(password.isEmpty()){emit notice(QStringLiteral("请输入登录密码确认充值"),true);return;}send(QStringLiteral("wallet.recharge"),{{QStringLiteral("amount"),amount},{QStringLiteral("password"),password}});}
 void MobileClient::refreshStations(){send(QStringLiteral("station.list"));}
 void MobileClient::refreshOrders(){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}send(QStringLiteral("user.orders"));}

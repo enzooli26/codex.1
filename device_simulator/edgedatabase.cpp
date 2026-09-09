@@ -23,6 +23,23 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
         "CREATE INDEX IF NOT EXISTS idx_edge_orders_status ON charge_orders(status)",
         "CREATE INDEX IF NOT EXISTS idx_edge_telemetry_time ON telemetry(charger_id,sampled_at)"};
     for(const QString &statement:sql)if(!q.exec(statement)){if(error)*error=q.lastError().text();return false;}
+
+    // Existing edge databases may predate these fields. CREATE TABLE IF NOT
+    // EXISTS leaves their old schema untouched, so migrate it in place.
+    const auto ensureOrderColumn=[this,error](const QString &name,const QString &definition){
+        QSqlQuery columns(m_db);
+        if(!columns.exec("PRAGMA table_info(charge_orders)")){if(error)*error=columns.lastError().text();return false;}
+        while(columns.next())if(columns.value(1).toString()==name)return true;
+        QSqlQuery alter(m_db);
+        if(!alter.exec(QString("ALTER TABLE charge_orders ADD COLUMN %1 %2").arg(name,definition))){
+            if(error)*error=QString("升级本地订单库失败（%1）：%2").arg(name,alter.lastError().text());
+            return false;
+        }
+        return true;
+    };
+    if(!ensureOrderColumn("payment_status","TEXT NOT NULL DEFAULT 'PENDING'")
+            ||!ensureOrderColumn("server_order_id","INTEGER")
+            ||!ensureOrderColumn("disconnected_at","TEXT"))return false;
     
     // 清理可能存在的重复站点数据
     QSqlQuery cleanStations(m_db);

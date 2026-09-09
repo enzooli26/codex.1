@@ -9,6 +9,12 @@
 #include <QTimer>
 class QWebEngineView;
 class QWebChannel;
+class QLineEdit;
+class QSpinBox;
+class QLabel;
+class QPushButton;
+class QTabWidget;
+class QWidget;
 class MapBridge;
 class MapHttpServer;
 namespace Ui { class UserWindow; }
@@ -16,9 +22,13 @@ class UserWindow : public QMainWindow
 {
     Q_OBJECT
 public: explicit UserWindow(QWidget *parent=nullptr); ~UserWindow();
-private slots: void connectServer(); void readMessages(); void login(); void registerUser(); void recharge(); void refreshStations(); void refreshAll(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
+private slots: void connectServer(); void readMessages(); void login(); void registerUser(); void logout(); void recharge(); void refreshStations(); void refreshAll(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
     void navigateToStation(int row);
 private: void sendRequest(const QString &type,const QJsonObject &payload={}); void showResult(const QJsonObject &message);
+    void setupDesktopUi();
+    void applyStationFilter();
+    void renderStationRows(const QJsonArray &rows);
+    void setAuthStatus(const QString &text, bool connected);
     QString mapApiKey() const;
     void requestMapConfig();
     void requestRoute(const QString &fromLat,const QString &fromLng);
@@ -41,6 +51,19 @@ private: void sendRequest(const QString &type,const QJsonObject &payload={}); vo
     bool m_mapPageLoaded=false;
     QTimer *m_suggestionTimer=nullptr;
     QTimer *m_refreshTimer=nullptr;
+    QWidget *m_authPage=nullptr;
+    QLineEdit *m_authHostEdit=nullptr;
+    QSpinBox *m_authPortSpin=nullptr;
+    QLabel *m_authStatusLabel=nullptr;
+    QLineEdit *m_authLoginPhone=nullptr;
+    QLineEdit *m_authLoginPassword=nullptr;
+    QLineEdit *m_authRegisterPhone=nullptr;
+    QLineEdit *m_authRegisterPassword=nullptr;
+    QLineEdit *m_authRegisterConfirm=nullptr;
+    QPushButton *m_authLoginButton=nullptr;
+    QPushButton *m_authRegisterButton=nullptr;
+    QLineEdit *m_stationFilterEdit=nullptr;
+    QJsonArray m_stationRows;
     struct PendingRoute { QString fromLat,fromLng,toLat,toLng; QJsonArray polyline; };
     PendingRoute m_pendingRoute;
     bool m_hasPendingRoute=false;
