@@ -105,6 +105,6 @@ void RegisterWindow::processMessage(const QJsonObject &message)
         const double balance = data.value("balance").toDouble();
         QObject::disconnect(&m_socket, &QSslSocket::readyRead, this, &RegisterWindow::onReadMessages);
         QMessageBox::information(this, "成功", "注册成功，已自动登录");
-        emit loginSuccess(&m_socket, userId, nickname, balance);
+        emit loginSuccess(&m_socket, userId, nickname, balance, m_lastPhone, m_lastPassword);
     }
 }

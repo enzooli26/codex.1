@@ -15,7 +15,8 @@ public:
     ~RegisterWindow();
 
 signals:
-    void loginSuccess(QSslSocket *socket, qint64 userId, const QString &nickname, double balance);
+    void loginSuccess(QSslSocket *socket, qint64 userId, const QString &nickname, double balance,
+                      const QString &phone, const QString &password);
     void backToLogin();
 
 private slots:

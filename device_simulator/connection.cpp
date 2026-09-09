@@ -26,7 +26,7 @@ void Simulator::onNetworkConnected()
 void Simulator::onNetworkDisconnected()
 {
     m_registered = false;
-    if(m_tick) QMetaObject::invokeMethod(m_tick, "stop", Qt::QueuedConnection);
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "stopHeartbeat", Qt::QueuedConnection);
     qWarning() << "central server disconnected; local charging and metering continue";
     emit connectionChanged(false);
     m_disconnected = true;

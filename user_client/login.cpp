@@ -25,6 +25,7 @@ LoginWindow::~LoginWindow() { delete ui; }
 
 void LoginWindow::onConnectServer()
 {
+    m_socket.abort();
     QString error;
     if (!SecureConnect::connectToServer(&m_socket, "127.0.0.1", 9527, &error)) {
         ui->hintLabel->setText("连接失败：" + error);
@@ -66,6 +67,8 @@ void LoginWindow::onLogin()
     }
     ui->loginButton->setEnabled(false);
     ui->hintLabel->setText("登录中…");
+    m_lastPhone = phone;
+    m_lastPassword = password;
     sendRequest("auth.user", {{"phone", phone}, {"password", password}});
 }
 
@@ -101,6 +104,6 @@ void LoginWindow::processMessage(const QJsonObject &message)
         const double balance = data.value("balance").toDouble();
         QObject::disconnect(&m_socket, &QSslSocket::readyRead, this, &LoginWindow::onReadMessages);
         QObject::disconnect(&m_socket, &QSslSocket::disconnected, this, &LoginWindow::onDisconnected);
-        emit loginSuccess(&m_socket, userId, nickname, balance);
+        emit loginSuccess(&m_socket, userId, nickname, balance, m_lastPhone, m_lastPassword);
     }
 }

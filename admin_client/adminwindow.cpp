@@ -70,10 +70,12 @@ AdminWindow::AdminWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::AdminWi
     connect(ui->addStationButton,&QPushButton::clicked,this,&AdminWindow::addStation);connect(ui->updateStationButton,&QPushButton::clicked,this,&AdminWindow::updateStation);connect(ui->deleteStationButton,&QPushButton::clicked,this,&AdminWindow::deleteStation);
     connect(ui->addChargerButton,&QPushButton::clicked,this,&AdminWindow::addCharger);connect(ui->updateChargerButton,&QPushButton::clicked,this,&AdminWindow::updateCharger);connect(ui->deleteChargerButton,&QPushButton::clicked,this,&AdminWindow::deleteCharger);
     connect(ui->stationsTable,&QTableWidget::currentCellChanged,this,[this](int row,int,int,int){if(row<0)return;ui->stationNameEdit->setText(ui->stationsTable->item(row,1)->text());ui->addressEdit->setText(ui->stationsTable->item(row,2)->text());ui->longitudeSpin->setValue(ui->stationsTable->item(row,3)->text().toDouble());ui->latitudeSpin->setValue(ui->stationsTable->item(row,4)->text().toDouble());ui->priceSpin->setValue(ui->stationsTable->item(row,5)->text().toDouble());ui->stationStatusCombo->setCurrentText(ui->stationsTable->item(row,6)->text());});
-    connect(ui->chargersTable,&QTableWidget::currentCellChanged,this,[this](int row,int,int,int){if(row<0)return;ui->chargerCodeEdit->setText(ui->chargersTable->item(row,1)->text());ui->chargerStationCombo->setCurrentText(ui->chargersTable->item(row,2)->text());ui->chargerTypeCombo->setCurrentText(ui->chargersTable->item(row,3)->text());ui->chargerPowerSpin->setValue(ui->chargersTable->item(row,4)->text().toDouble());const int statusIndex=ui->chargerStatusCombo->findText(ui->chargersTable->item(row,5)->text());if(statusIndex>=0)ui->chargerStatusCombo->setCurrentIndex(statusIndex);});
+    connect(ui->chargersTable,&QTableWidget::currentCellChanged,this,[this](int row,int,int,int){if(row<0)return;ui->chargerCodeEdit->setText(ui->chargersTable->item(row,1)->text());ui->chargerStationCombo->setCurrentText(ui->chargersTable->item(row,2)->text());ui->chargerTypeCombo->setCurrentText(ui->chargersTable->item(row,3)->text());ui->chargerPowerSpin->setValue(ui->chargersTable->item(row,4)->text().toDouble());ui->chargerStatusCombo->setCurrentText(ui->chargersTable->item(row,5)->text());});
     connect(ui->searchUserButton,&QPushButton::clicked,this,[this]{send("admin.users",{{"phone",ui->phoneSearchEdit->text()}});});
     connect(ui->freezeButton,&QPushButton::clicked,this,[this]{changeUserStatus("FROZEN");});connect(ui->unfreezeButton,&QPushButton::clicked,this,[this]{changeUserStatus("NORMAL");});
     connect(ui->restartButton,&QPushButton::clicked,this,&AdminWindow::restartCharger);
+
+    ui->chargerStatusCombo->addItems({"IDLE","OFFLINE","FAULT","CHARGING","RESERVED"});
 
     auto *clock=new QTimer(this);connect(clock,&QTimer::timeout,this,[this]{ui->timeLabel->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"));});clock->start(1000);
     auto *autoRefresh=new QTimer(this);connect(autoRefresh,&QTimer::timeout,this,[this]{if(m_loggedIn)send("admin.summary");});autoRefresh->start(10000);
@@ -178,7 +180,13 @@ void AdminWindow::readMessages(const QJsonObject &msg)
     if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}
     else if(t=="admin.summary.result")updateDashboard(d);
     else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}
-    else if(t=="admin.chargers.result"){const auto items=d.value("items").toArray();fillTable(ui->chargersTable,items,{"id","code","station","chargerType","power","status","sessions","duration","lastSeen","voltage","current","livePower"});updateTelemetryChart(items);}
+    else if(t=="admin.chargers.result"){
+        const int savedRow=ui->chargersTable->currentRow();
+        const auto items=d.value("items").toArray();
+        fillTable(ui->chargersTable,items,{"id","code","station","chargerType","power","status","sessions","duration","lastSeen","voltage","current","livePower"});
+        if(savedRow>=0&&savedRow<ui->chargersTable->rowCount())ui->chargersTable->selectRow(savedRow);
+        updateTelemetryChart(items);
+    }
     else if(t=="admin.orders.result")fillTable(ui->ordersTable,d.value("items").toArray(),{"id","phone","station","charger","status","mode","target","energy","duration","amount","startAt","endAt"});
     else if(t=="admin.users.result")fillTable(ui->usersTable,d.value("items").toArray(),{"id","phone","nickname","balance","status","failedAttempts","lockedAt","createdAt"});
     else if(t=="admin.logs.result")fillTable(ui->logsTable,d.value("items").toArray(),{"id","actor","action","target","result","createdAt"});

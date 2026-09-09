@@ -29,6 +29,12 @@ void SimulatorTick::stop()
     m_timeoutTimer->stop();
 }
 
+void SimulatorTick::stopHeartbeat()
+{
+    m_heartbeatTimer->stop();
+    m_timeoutTimer->stop();
+}
+
 void SimulatorTick::resetHeartbeatTimer()
 {
     m_timeoutTimer->start();

@@ -1,6 +1,7 @@
 #include "userwindow.h"
 #include "ui_userwindow.h"
 #include "framecodec.h"
+#include "secureconnect.h"
 #include <QHeaderView>
 #include <QJsonArray>
 #include <QMessageBox>
@@ -135,13 +136,27 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
         }
     });
 }
-UserWindow::~UserWindow(){delete ui;}
-void UserWindow::setConnection(QSslSocket *socket, qint64 userId, const QString &nickname, double balance)
+UserWindow::~UserWindow(){
+    if(m_socket && m_ownsSocket) delete m_socket;
+    delete ui;
+}
+void UserWindow::setConnection(QSslSocket *socket, qint64 userId, const QString &nickname, double balance,
+                               const QString &phone, const QString &password)
 {
-    QObject::disconnect(socket, &QSslSocket::readyRead, nullptr, nullptr);
-    QObject::disconnect(socket, &QSslSocket::disconnected, nullptr, nullptr);
+    if (m_socket && m_ownsSocket) {
+        m_socket->deleteLater();
+        m_socket = nullptr;
+        m_ownsSocket = false;
+    }
+    if (m_socket) {
+        QObject::disconnect(m_socket, &QSslSocket::readyRead, nullptr, nullptr);
+        QObject::disconnect(m_socket, &QSslSocket::disconnected, nullptr, nullptr);
+    }
     m_socket = socket;
     m_userId = userId;
+    m_phone = phone;
+    m_password = password;
+    m_buffer.clear();
     ui->welcomeLabel->setText(nickname + "  余额 ¥" + QString::number(balance, 'f', 2));
     updateConnectionStatus();
     connect(m_socket, &QSslSocket::readyRead, this, &UserWindow::readMessages);
@@ -174,11 +189,58 @@ void UserWindow::updateConnectionStatus()
 }
 void UserWindow::reconnect()
 {
-    if (m_socket && m_socket->isEncrypted()) {
+    if (m_socket && m_socket->state() == QAbstractSocket::ConnectedState && m_socket->isEncrypted()) {
         QMessageBox::information(this, "提示", "当前已连接服务器");
         return;
     }
-    emit reconnectRequested();
+    if (m_phone.isEmpty()) {
+        emit reconnectRequested();
+        return;
+    }
+    if (m_socket) {
+        m_socket->abort();
+        m_socket->disconnect();
+        if (m_ownsSocket) {
+            m_socket->deleteLater();
+            m_socket = nullptr;
+            m_ownsSocket = false;
+        } else {
+            m_socket = nullptr;
+        }
+    }
+    m_buffer.clear();
+    auto *sock = new QSslSocket(this);
+    m_socket = sock;
+    m_ownsSocket = true;
+    connect(sock, &QSslSocket::encrypted, this, &UserWindow::onTlsConnected);
+    connect(sock, &QSslSocket::readyRead, this, &UserWindow::readMessages);
+    connect(sock, &QSslSocket::disconnected, this, [this]{
+        m_userId = 0;
+        ui->connectionStatusLabel->setText("● 已断开");
+        ui->connectionStatusLabel->setStyleSheet("color:#d85b6a;font-size:12px");
+    });
+    connect(sock, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
+            this, &UserWindow::onTlsSslErrors);
+    ui->connectionStatusLabel->setText("● 连接中…");
+    ui->connectionStatusLabel->setStyleSheet("color:#e6a817;font-size:12px");
+    QString error;
+    if (!SecureConnect::connectToServer(sock, "127.0.0.1", 9527, &error)) {
+        ui->connectionStatusLabel->setText("● 连接失败");
+        ui->connectionStatusLabel->setStyleSheet("color:#d85b6a;font-size:12px");
+        QMessageBox::warning(this, "重连失败", error);
+    }
+}
+void UserWindow::onTlsConnected()
+{
+    ui->connectionStatusLabel->setText("● 连接中…");
+    ui->connectionStatusLabel->setStyleSheet("color:#e6a817;font-size:12px");
+    sendRequest("auth.user", {{"phone", m_phone}, {"password", m_password}});
+}
+void UserWindow::onTlsSslErrors(const QList<QSslError> &errors)
+{
+    Q_UNUSED(errors);
+    ui->connectionStatusLabel->setText("● TLS 错误");
+    ui->connectionStatusLabel->setStyleSheet("color:#d85b6a;font-size:12px");
 }
 void UserWindow::sendRequest(const QString &type,const QJsonObject &payload){if(!m_socket||!m_socket->isEncrypted())return;m_socket->write(Protocol::encode(Protocol::request(type,payload,QUuid::createUuid().toString(QUuid::WithoutBraces))));}
 void UserWindow::recharge(){if(m_userId<=0){QMessageBox::information(this,"提示","请先登录");return;}if(ui->rechargePasswordEdit->text().isEmpty()){QMessageBox::warning(this,"输入错误","充值前必须输入登录密码");return;}sendRequest("wallet.recharge",{{"amount",ui->rechargeSpin->value()},{"password",ui->rechargePasswordEdit->text()}});}
@@ -197,7 +259,7 @@ void UserWindow::startCharge()
                                {"target",ui->targetSpin->value()}});
 }
 void UserWindow::stopCharge(){if(m_orderId>0)sendRequest("charge.stop",{{"orderId",m_orderId}});}
-void UserWindow::readMessages(){static QByteArray buf;buf.append(m_socket->readAll());QString error;for(const auto&m:Protocol::decode(buf,&error))showResult(m);if(!error.isEmpty())qWarning()<<error;}
+void UserWindow::readMessages(){m_buffer.append(m_socket->readAll());QString error;for(const auto&m:Protocol::decode(m_buffer,&error))showResult(m);if(!error.isEmpty())qWarning()<<error;}
 QString UserWindow::mapApiKey() const
 {
     if(!m_mapApiKey.isEmpty()) return m_mapApiKey;
@@ -461,6 +523,15 @@ void UserWindow::showResult(const QJsonObject &m)
     }
     if(m.value("code").toInt()!=0){QMessageBox::warning(this,"操作失败",m.value("message").toString());return;}
     const QJsonObject data=type=="charge.completed"?m.value("payload").toObject():m.value("data").toObject();
+    if(type=="auth.user.result"){
+        m_userId=data.value("id").toVariant().toLongLong();
+        ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));
+        updateConnectionStatus();
+        refreshStations();
+        sendRequest("user.orders");
+        QMessageBox::information(this, "成功", "已重新连接服务器");
+        return;
+    }
     if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="user.info.result"){ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
     else if(type=="station.list.result"){

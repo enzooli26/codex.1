@@ -845,13 +845,14 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
             if(itemError.isEmpty() && result.value("status").toString() == "COMPLETED") {
                 qint64 userId = result.value("userId").toVariant().toLongLong();
 
-                QSslSocket *user = m_userSockets.value(
-                    result.value("userId").toVariant().toLongLong(), nullptr);
-                QString role = user->property("role").toString();
-                               qint64 currentUserId = user->property("userId").toLongLong();
-                if(role == "user" && currentUserId == userId) {
-                    send(user, Protocol::request("charge.completed", result,
-                        QUuid::createUuid().toString(QUuid::WithoutBraces)));
+                QSslSocket *user = m_userSockets.value(userId, nullptr);
+                if(user) {
+                    QString role = user->property("role").toString();
+                    qint64 currentUserId = user->property("userId").toLongLong();
+                    if(role == "user" && currentUserId == userId) {
+                        send(user, Protocol::request("charge.completed", result,
+                            QUuid::createUuid().toString(QUuid::WithoutBraces)));
+                    }
                 }
             }
         }
@@ -864,25 +865,40 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
 
     // ===== 设备心跳 =====
     else if(type == "device.heartbeat") {
-        const QString code = p.value("chargerCode").toString();
-        if(socket->property("role").toString() != "device" ||
-           m_chargerSockets.value(code) != socket) {
-            send(socket, Protocol::response(message, 400, "设备未注册或无权上报该充电桩"));
+        if(socket->property("role").toString() != "device") {
+            send(socket, Protocol::response(message, 400, "设备未注册"));
             return;
         }
-        if(!QStringList({"IDLE","CHARGING","FAULT","OFFLINE"}).contains(
-            p.value("status").toString())) {
-            send(socket, Protocol::response(message, 400, "设备状态无效"));
-            return;
-        }
-        QString err;
-        if(m_database->updateHeartbeat(code, p.value("status").toString(), &err)) {
-            QJsonObject data;
-            data["accepted"] = true;
-            send(socket, Protocol::response(message, 0, "ok", data));
+        const QString topCode = p.value("chargerCode").toString();
+        const QJsonArray orders = p.value("orders").toArray();
+        if(!topCode.isEmpty()) {
+            // 单充电桩心跳：仅更新最后在线时间
+            if(m_chargerSockets.value(topCode) != socket) {
+                send(socket, Protocol::response(message, 400, "设备未注册或无权上报该充电桩"));
+                return;
+            }
+            QString err;
+            m_database->updateHeartbeatSeen(topCode, &err);
+        } else if(!orders.isEmpty()) {
+            // 批量心跳（模拟器格式）：仅更新最后在线时间
+            for(const auto &item : orders) {
+                const QJsonObject order = item.toObject();
+                const QString code = order.value("chargerCode").toString();
+                if(code.isEmpty() || m_chargerSockets.value(code) != socket) continue;
+                QString err;
+                m_database->updateHeartbeatSeen(code, &err);
+            }
         } else {
-            send(socket, Protocol::response(message, 400, err));
+            // 无充电桩信息，更新该 socket 关联的所有充电桩最后在线时间
+            const QStringList codes = m_socketChargers.value(socket);
+            for(const QString &code : codes) {
+                QString err;
+                m_database->updateHeartbeatSeen(code, &err);
+            }
         }
+        QJsonObject data;
+        data["accepted"] = true;
+        send(socket, Protocol::response(message, 0, "ok", data));
         return;
     }
 

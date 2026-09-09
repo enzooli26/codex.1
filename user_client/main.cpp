@@ -13,7 +13,8 @@ int main(int argc, char *argv[]) {
     RegisterWindow *registerWin = nullptr;
     LoginWindow login;
 
-    auto enterMain = [&](QSslSocket *socket, qint64 userId, const QString &nickname, double balance) {
+    auto enterMain = [&](QSslSocket *socket, qint64 userId, const QString &nickname, double balance,
+                         const QString &phone, const QString &password) {
         if (!userWindow) {
             userWindow = new UserWindow;
             QObject::connect(userWindow, &UserWindow::reconnectRequested, [&]() {
@@ -21,7 +22,7 @@ int main(int argc, char *argv[]) {
                 login.show();
             });
         }
-        userWindow->setConnection(socket, userId, nickname, balance);
+        userWindow->setConnection(socket, userId, nickname, balance, phone, password);
         userWindow->show();
         login.hide();
         if (registerWin) registerWin->hide();

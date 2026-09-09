@@ -16,7 +16,8 @@ public:
 
 signals:
     void loginSuccess(QSslSocket *socket, qint64 userId,
-                      const QString &nickname, double balance);
+                      const QString &nickname, double balance,
+                      const QString &phone, const QString &password);
     void showRegister();
 
 private slots:
@@ -34,4 +35,6 @@ private:
     Ui::LoginWindow *ui;
     QSslSocket m_socket;
     QByteArray m_buffer;
+    QString m_lastPhone;
+    QString m_lastPassword;
 };

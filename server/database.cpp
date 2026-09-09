@@ -451,6 +451,14 @@ bool Database::updateHeartbeat(const QString &chargerCode, const QString &status
     if(!q.exec()){if(error)*error=q.lastError().text();return false;}return q.numRowsAffected()==1;
 }
 
+bool Database::updateHeartbeatSeen(const QString &chargerCode, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE chargers SET last_seen=? WHERE code=?");
+    q.addBindValue(now());q.addBindValue(chargerCode);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}return q.numRowsAffected()==1;
+}
+
 bool Database::markDeviceOffline(const QStringList &chargerCodes,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("UPDATE chargers SET status='OFFLINE' WHERE code=?");
