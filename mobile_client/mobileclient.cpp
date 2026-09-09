@@ -29,7 +29,7 @@ MobileClient::MobileClient(QObject *parent):QObject(parent)
 
     connect(&m_socket,&QSslSocket::readyRead,this,&MobileClient::readMessages);
     connect(&m_socket,&QSslSocket::encrypted,this,[this]{saveSettings();emit connectedChanged();emit notice(QStringLiteral("TLS 安全连接成功"),false);requestMapConfig();});
-    connect(&m_socket,&QSslSocket::disconnected,this,[this]{emit connectedChanged();emit notice(QStringLiteral("服务器连接已断开"),true);});
+    connect(&m_socket,&QSslSocket::disconnected,this,[this]{logout();emit connectedChanged();emit notice(QStringLiteral("服务器连接已断开，请重新登录"),true);});
     connect(&m_socket,QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),this,[this](QAbstractSocket::SocketError){emit notice(m_socket.errorString(),true);});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){emit notice(QStringLiteral("TLS 证书校验失败：")+m_socket.errorString(),true);});
 }
@@ -65,6 +65,21 @@ void MobileClient::login(const QString &phone,const QString &password)
     if(password.isEmpty()){emit notice(QStringLiteral("密码不能为空"),true);return;}
     m_savedPhone=phone.trimmed();
     send(QStringLiteral("auth.user"),{{QStringLiteral("phone"),phone.trimmed()},{QStringLiteral("password"),password}});
+}
+// 本地退出登录：复位所有与会话强相关的本地状态并广播，UI 立即切回登录表单
+void MobileClient::logout()
+{
+    bool accountChangedFlag=false;
+    if(m_userId!=0){m_userId=0;accountChangedFlag=true;}
+    if(m_userText!=QStringLiteral("请先登录")){m_userText=QStringLiteral("请先登录");accountChangedFlag=true;}
+    if(m_balance!=0){m_balance=0;accountChangedFlag=true;}
+    if(!m_orders.isEmpty()){m_orders.clear();emit ordersChanged();}
+    if(m_reservationId!=0||m_reservationChargerId!=0){m_reservationId=0;m_reservationChargerId=0;emit reservationChanged();}
+    if(m_orderId!=0||m_chargeStatus!=QStringLiteral("尚未开始充电")||m_livePower!=0||m_liveSoc!=0||m_liveEnergy!=0||m_liveDuration!=0||m_liveCost!=0){
+        m_orderId=0;m_chargeStatus=QStringLiteral("尚未开始充电");m_livePower=0;m_liveSoc=0;m_liveEnergy=0;m_liveDuration=0;m_liveCost=0;
+        emit liveChanged();emit chargeChanged();
+    }
+    if(accountChangedFlag){emit loggedInChanged();emit accountChanged();}
 }
 // 用户注册：校验手机号/密码格式，发送注册请求
 void MobileClient::registerUser(const QString &phone,const QString &password,const QString &confirmPassword){if(!PasswordUtils::validPhone(phone.trimmed())){emit notice(QStringLiteral("请输入正确的 11 位手机号"),true);return;}if(!PasswordUtils::validPassword(password)){emit notice(QStringLiteral("密码长度须为 6～64 位"),true);return;}if(password!=confirmPassword){emit notice(QStringLiteral("两次密码输入不一致"),true);return;}m_savedPhone=phone.trimmed();send(QStringLiteral("auth.user.register"),{{QStringLiteral("phone"),phone.trimmed()},{QStringLiteral("password"),password},{QStringLiteral("confirmPassword"),confirmPassword}});}
@@ -128,7 +143,13 @@ void MobileClient::readMessages()
 // 消息分发处理：根据 type 更新对应状态
 void MobileClient::handle(const QJsonObject &m)
 {
-    if(m.value(QStringLiteral("code")).toInt()!=0){emit notice(m.value(QStringLiteral("message")).toString(),true);return;}
+    if(m.value(QStringLiteral("code")).toInt()!=0){
+        const QString errorMsg=m.value(QStringLiteral("message")).toString();
+        // 断连重连后服务端连接级会话(role)已丢失，已登录请求会返回"请先登录"等文案。
+        // 此时必须复位本地登录态并通知 UI，否则界面会卡在"已登录"却没有可用会话。
+        if(errorMsg.contains(QStringLiteral("请先登录"))||errorMsg.contains(QStringLiteral("未登录"))||errorMsg.contains(QStringLiteral("登录已失效")))logout();
+        emit notice(errorMsg,true);return;
+    }
     const QString type=m.value(QStringLiteral("type")).toString();const QJsonObject d=type==QStringLiteral("charge.completed")?m.value(QStringLiteral("payload")).toObject():m.value(QStringLiteral("data")).toObject();
     // 登录/注册成功：保存用户信息，刷新站点和订单
     if(type==QStringLiteral("auth.user.result")||type==QStringLiteral("auth.user.register.result")){m_userId=d.value("id").toVariant().toLongLong();m_userText=d.value("nickname").toString();m_balance=d.value("balance").toDouble();saveSettings();emit loggedInChanged();emit accountChanged();refreshStations();refreshOrders();emit notice(type.contains("register")?QStringLiteral("注册成功并已登录"):QStringLiteral("登录成功"),false);}

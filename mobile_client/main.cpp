@@ -8,7 +8,7 @@
 
 int main(int argc,char *argv[])
 {
-    // 启用高 DPI 缩放
+    // 启用高 DPI 缩放,适配不同屏幕
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QGuiApplication app(argc,argv);
     // 设置应用名称和 Material 主题
