@@ -508,6 +508,24 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
         return;
     }
 
+    // ===== 充电实时状态 =====
+    else if(type == "charge.status") {
+        if(socket->property("role").toString() != "user") {
+            send(socket, Protocol::response(message, 400, "请先登录"));
+            return;
+        }
+        QString err;
+        QJsonObject result = m_database->chargeStatus(
+            socket->property("userId").toLongLong(),
+            p.value("orderId").toVariant().toLongLong(), &err);
+        if(result.isEmpty()) {
+            send(socket, Protocol::response(message, 400, err.isEmpty() ? "订单不存在" : err));
+            return;
+        }
+        send(socket, Protocol::response(message, 0, "ok", result));
+        return;
+    }
+
     // ===== 管理员登录 =====
     else if(type == "auth.admin") {
         QString err;

@@ -188,6 +188,36 @@ QJsonObject Database::userInfo(qint64 userId,QString *error)
     return{{"id",q.value(0).toLongLong()},{"nickname",q.value(1).toString()},{"balance",q.value(2).toDouble()},{"status",q.value(3).toString()}};
 }
 
+QJsonObject Database::chargeStatus(qint64 userId, qint64 orderId, QString *error)
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT o.id,o.status,o.mode,o.target,o.energy,o.duration,o.charger_id,c.code,s.name,c.rated_power,s.base_price "
+              "FROM charge_orders o JOIN chargers c ON c.id=o.charger_id JOIN stations s ON s.id=c.station_id "
+              "WHERE o.id=? AND o.user_id=?");
+    q.addBindValue(orderId); q.addBindValue(userId);
+    if(!q.exec()||!q.next()){if(error)*error="订单不存在";return{};}
+    const qint64 chargerId=q.value(6).toLongLong();
+    const double energy=q.value(4).toDouble(), price=q.value(10).toDouble();
+    QJsonObject r{{"orderId",q.value(0).toLongLong()},{"status",q.value(1).toString()},
+        {"mode",q.value(2).toString()},{"target",q.value(3).toDouble()},
+        {"energy",energy},{"duration",q.value(5).toInt()},
+        {"charger",q.value(7).toString()},{"station",q.value(8).toString()},
+        {"ratedPower",q.value(9).toDouble()},
+        {"estAmount",qRound64(energy*price*100.0)/100.0},
+        {"power",0.0},{"soc",0.0},{"voltage",0.0},{"current",0.0},{"temperature",0.0}};
+    QSqlQuery t(m_db);
+    t.prepare("SELECT power,soc,voltage,current,temperature FROM telemetry WHERE charger_id=? ORDER BY id DESC LIMIT 1");
+    t.addBindValue(chargerId);
+    if(t.exec()&&t.next()){
+        r["power"]=t.value(0).toDouble();
+        r["soc"]=t.value(1).toDouble();
+        r["voltage"]=t.value(2).toDouble();
+        r["current"]=t.value(3).toDouble();
+        r["temperature"]=t.value(4).toDouble();
+    }
+    return r;
+}
+
 bool Database::loginAdmin(const QString &username, const QString &password, QString *error)
 {
     QSqlQuery q(m_db);

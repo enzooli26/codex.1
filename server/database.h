@@ -17,6 +17,7 @@ public:
     QJsonObject recharge(qint64 userId, double amount, const QString &password, QString *error);
     QJsonArray userOrders(qint64 userId, QString *error);
     QJsonObject userInfo(qint64 userId, QString *error);
+    QJsonObject chargeStatus(qint64 userId, qint64 orderId, QString *error);
     bool loginAdmin(const QString &username, const QString &password, QString *error);
     bool registerAdmin(const QString &username, const QString &password, QString *error);
     QJsonArray stationList(QString *error);
