@@ -81,28 +81,80 @@ void Simulator::syncChargerList(const QJsonArray &serverChargers)
     QMetaObject::invokeMethod(m_database, [this, &localChargers, &err]() {
         localChargers = m_database->chargers(&err);
     }, Qt::BlockingQueuedConnection);
+
     QSet<QString> localCodes;
-    for(const auto &v : localChargers)
-        localCodes.insert(v.toObject().value("code").toString());
+    QHash<QString, QJsonObject> localMap;
+    for(const auto &v : localChargers) {
+        const QJsonObject c = v.toObject();
+        const QString code = c.value("code").toString();
+        localCodes.insert(code);
+        localMap[code] = c;
+    }
+
+    QStringList serverCodeList;
+    QHash<QString, QJsonObject> serverMap;
     for(const auto &v : serverChargers) {
         const QJsonObject c = v.toObject();
         const QString code = c.value("code").toString();
-        if(code.isEmpty() || localCodes.contains(code)) continue;
-        bool ok = false;
-        QMetaObject::invokeMethod(m_database, [this, code, c, &ok, &err]() {
-            ok = m_database->addChargerFromServer(
-                code,
-                c.value("type").toString("FAST"),
-                c.value("ratedPower").toDouble(120),
-                c.value("stationName").toString("未分配站点"),
-                &err);
-        }, Qt::BlockingQueuedConnection);
-        if(ok) {
-            m_soc[code] = 35.0;
-            emit chargerAdded(code);
-            qInfo() << "Synced new charger from server:" << code;
+        if(code.isEmpty()) continue;
+        serverCodeList.append(code);
+        serverMap[code] = c;
+    }
+
+    for(const auto &v : serverChargers) {
+        const QJsonObject c = v.toObject();
+        const QString code = c.value("code").toString();
+        if(code.isEmpty()) continue;
+        if(localCodes.contains(code)) {
+            bool updated = false;
+            QMetaObject::invokeMethod(m_database, [this, code, c, &updated, &err]() {
+                updated = m_database->updateChargerFromServer(
+                    code,
+                    c.value("type").toString("FAST"),
+                    c.value("ratedPower").toDouble(120),
+                    c.value("stationName").toString("未分配站点"),
+                    &err);
+            }, Qt::BlockingQueuedConnection);
+            if(updated) {
+                emit chargerUpdated(code);
+                qInfo() << "Synced updated charger from server:" << code;
+            }
         } else {
-            qWarning() << "Failed to sync charger" << code << ":" << err;
+            bool ok = false;
+            QMetaObject::invokeMethod(m_database, [this, code, c, &ok, &err]() {
+                ok = m_database->addChargerFromServer(
+                    code,
+                    c.value("type").toString("FAST"),
+                    c.value("ratedPower").toDouble(120),
+                    c.value("stationName").toString("未分配站点"),
+                    &err);
+            }, Qt::BlockingQueuedConnection);
+            if(ok) {
+                m_soc[code] = 35.0;
+                emit chargerAdded(code);
+                qInfo() << "Synced new charger from server:" << code;
+            } else {
+                qWarning() << "Failed to sync charger" << code << ":" << err;
+            }
         }
+    }
+
+    QStringList removed;
+    QMetaObject::invokeMethod(m_database, [this, serverCodeList, &removed, &err]() {
+        removed = m_database->removeChargersNotIn(serverCodeList, &err);
+    }, Qt::BlockingQueuedConnection);
+    for(const QString &code : removed) {
+        m_soc.remove(code);
+        emit chargerRemoved(code);
+        qInfo() << "Removed local charger not on server:" << code;
+    }
+
+    QStringList removedStations;
+    QMetaObject::invokeMethod(m_database, [this, &removedStations, &err]() {
+        removedStations = m_database->removeEmptyStations(&err);
+    }, Qt::BlockingQueuedConnection);
+    for(const QString &name : removedStations) {
+        emit stationRemoved(name);
+        qInfo() << "Removed empty station:" << name;
     }
 }

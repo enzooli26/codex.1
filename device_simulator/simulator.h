@@ -40,6 +40,10 @@ signals:
     void disconnectedStateChanged(bool disconnected);
     void chargerAdded(const QString &code);
     void chargerRemoved(const QString &code);
+    void chargerUpdated(const QString &code);
+    void stationAdded(const QString &name);
+    void stationRemoved(const QString &name);
+    void stationUpdated(const QString &oldName, const QString &newName);
 
     void connectNetwork(QString host, quint16 port);
     void disconnectNetwork();

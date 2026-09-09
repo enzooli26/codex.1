@@ -198,6 +198,59 @@ void ServerApp::onDatabaseResult(qint64 requestId, int code, const QJsonObject &
         }
         qInfo() << "Pushed new charger" << data.value("code").toString() << "to" << m_chargerSockets.size() << "simulator(s)";
     }
+
+    // 管理员修改充电桩后，向所有模拟器推送
+    if(pending.originalMessage.value("type").toString() == "admin.charger.update" && error.isEmpty()) {
+        QJsonObject push = {{"code", data.value("code").toString()},
+                            {"type", data.value("type").toString()},
+                            {"ratedPower", data.value("ratedPower").toDouble()},
+                            {"stationName", data.value("stationName").toString()}};
+        for(auto it = m_chargerSockets.constBegin(); it != m_chargerSockets.constEnd(); ++it) {
+            send(it.value(), Protocol::notification("device.charger.updated", push));
+        }
+        qInfo() << "Pushed updated charger" << data.value("code").toString() << "to" << m_chargerSockets.size() << "simulator(s)";
+    }
+
+    // 管理员删除充电桩后，向所有模拟器推送
+    if(pending.originalMessage.value("type").toString() == "admin.charger.delete" && error.isEmpty()) {
+        QJsonObject push = {{"code", data.value("code").toString()}};
+        for(auto it = m_chargerSockets.constBegin(); it != m_chargerSockets.constEnd(); ++it) {
+            send(it.value(), Protocol::notification("device.charger.removed", push));
+        }
+        qInfo() << "Pushed removed charger" << data.value("code").toString() << "to" << m_chargerSockets.size() << "simulator(s)";
+    }
+
+    // 管理员添加充电站后，向所有模拟器推送
+    if(pending.originalMessage.value("type").toString() == "admin.station.add" && error.isEmpty()) {
+        const QJsonObject payload = pending.originalMessage.value("payload").toObject();
+        QJsonObject push = {{"name", payload.value("name").toString()}};
+        for(auto it = m_socketChargers.constBegin(); it != m_socketChargers.constEnd(); ++it) {
+            if(it.key()->state() == QAbstractSocket::ConnectedState)
+                send(it.key(), Protocol::notification("device.station.added", push));
+        }
+        qInfo() << "Pushed new station" << payload.value("name").toString() << "to" << m_socketChargers.size() << "simulator(s)";
+    }
+
+    // 管理员修改充电站后，向所有模拟器推送
+    if(pending.originalMessage.value("type").toString() == "admin.station.update" && error.isEmpty()) {
+        QJsonObject push = {{"oldName", data.value("oldName").toString()},
+                            {"newName", data.value("name").toString()}};
+        for(auto it = m_socketChargers.constBegin(); it != m_socketChargers.constEnd(); ++it) {
+            if(it.key()->state() == QAbstractSocket::ConnectedState)
+                send(it.key(), Protocol::notification("device.station.updated", push));
+        }
+        qInfo() << "Pushed updated station" << data.value("oldName").toString() << "->" << data.value("name").toString() << "to" << m_socketChargers.size() << "simulator(s)";
+    }
+
+    // 管理员删除充电站后，向所有模拟器推送
+    if(pending.originalMessage.value("type").toString() == "admin.station.delete" && error.isEmpty()) {
+        QJsonObject push = {{"name", data.value("name").toString()}};
+        for(auto it = m_socketChargers.constBegin(); it != m_socketChargers.constEnd(); ++it) {
+            if(it.key()->state() == QAbstractSocket::ConnectedState)
+                send(it.key(), Protocol::notification("device.station.removed", push));
+        }
+        qInfo() << "Pushed removed station" << data.value("name").toString() << "to" << m_socketChargers.size() << "simulator(s)";
+    }
 }
 
 void ServerApp::acceptConnections()
@@ -520,6 +573,24 @@ void ServerApp::dispatch(QSslSocket *socket, const QJsonObject &message)
         data["items"] = orders;
         send(socket, Protocol::response(message, err.isEmpty() ? 0 : 400,
                                         err.isEmpty() ? "ok" : err, data));
+        return;
+    }
+
+    // ===== 充电实时状态 =====
+    else if(type == "charge.status") {
+        if(socket->property("role").toString() != "user") {
+            send(socket, Protocol::response(message, 400, "请先登录"));
+            return;
+        }
+        QString err;
+        QJsonObject result = m_database->chargeStatus(
+            socket->property("userId").toLongLong(),
+            p.value("orderId").toVariant().toLongLong(), &err);
+        if(result.isEmpty()) {
+            send(socket, Protocol::response(message, 400, err.isEmpty() ? "订单不存在" : err));
+            return;
+        }
+        send(socket, Protocol::response(message, 0, "ok", result));
         return;
     }
 

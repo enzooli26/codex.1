@@ -12,7 +12,9 @@ void Simulator::onMessageReceived(QJsonObject message)
 void Simulator::dispatch(const QJsonObject &message)
 {
     const QString type = message.value("type").toString();
-    const QJsonObject payload = message.value("payload").toObject();
+    const QJsonObject payload = message.contains("payload")
+        ? message.value("payload").toObject()
+        : message.value("data").toObject();
     QString error;
     QJsonObject data;
 
@@ -132,9 +134,77 @@ void Simulator::dispatch(const QJsonObject &message)
             removed = m_database->removeChargerByCode(payload.value("code").toString(), &error);
         }, Qt::BlockingQueuedConnection);
         if(removed) {
-            emit chargerRemoved(payload.value("code").toString());
-            qInfo() << "Charger removed from server:" << payload.value("code").toString();
+            const QString code = payload.value("code").toString();
+            m_soc.remove(code);
+            emit chargerRemoved(code);
+            qInfo() << "Charger removed from server:" << code;
+            QMetaObject::invokeMethod(m_database, [this, &error]() {
+                m_database->removeEmptyStations(&error);
+            }, Qt::BlockingQueuedConnection);
         }
+        return;
+    }
+    else if(type == "device.charger.updated") {
+        bool updated = false;
+        QMetaObject::invokeMethod(m_database, [this, payload, &updated, &error]() {
+            updated = m_database->updateChargerFromServer(
+                payload.value("code").toString(),
+                payload.value("type").toString(),
+                payload.value("ratedPower").toDouble(),
+                payload.value("stationName").toString(),
+                &error);
+        }, Qt::BlockingQueuedConnection);
+        if(updated) {
+            const QString code = payload.value("code").toString();
+            emit chargerUpdated(code);
+            qInfo() << "Charger updated from server:" << code;
+        } else {
+            qWarning() << "Failed to update charger:" << error;
+        }
+        return;
+    }
+    else if(type == "device.station.added") {
+        bool added = false;
+        QMetaObject::invokeMethod(m_database, [this, payload, &added, &error]() {
+            added = m_database->addStationFromServer(
+                payload.value("name").toString(), &error);
+        }, Qt::BlockingQueuedConnection);
+        if(added) {
+            emit stationAdded(payload.value("name").toString());
+            qInfo() << "Station added from server:" << payload.value("name").toString();
+        }
+        return;
+    }
+    else if(type == "device.station.updated") {
+        bool updated = false;
+        QMetaObject::invokeMethod(m_database, [this, payload, &updated, &error]() {
+            updated = m_database->updateStationName(
+                payload.value("oldName").toString(),
+                payload.value("newName").toString(),
+                &error);
+        }, Qt::BlockingQueuedConnection);
+        if(updated) {
+            emit stationUpdated(payload.value("oldName").toString(),
+                                payload.value("newName").toString());
+            qInfo() << "Station updated:" << payload.value("oldName").toString()
+                    << "->" << payload.value("newName").toString();
+        }
+        return;
+    }
+    else if(type == "device.station.removed") {
+        QStringList removedChargers;
+        QMetaObject::invokeMethod(m_database, [this, payload, &removedChargers, &error]() {
+            removedChargers = m_database->removeStationByName(
+                payload.value("name").toString(), &error);
+        }, Qt::BlockingQueuedConnection);
+        const QString stationName = payload.value("name").toString();
+        for(const QString &code : removedChargers) {
+            m_soc.remove(code);
+            emit chargerRemoved(code);
+        }
+        emit stationRemoved(stationName);
+        qInfo() << "Station removed from server:" << stationName
+                << "(" << removedChargers.size() << "chargers removed)";
         return;
     }
     else return;
