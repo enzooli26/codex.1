@@ -4,9 +4,15 @@
 #include "passwordutils.h"
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <QUuid>
 #include <QSettings>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QDesktopServices>
+#include <QUrl>
 #ifdef Q_OS_ANDROID
 #include <QtAndroidExtras/QtAndroid>
 #include <QtAndroidExtras/QAndroidJniObject>
@@ -18,9 +24,10 @@ MobileClient::MobileClient(QObject *parent):QObject(parent)
     m_savedHost=s.value(QStringLiteral("server/host"),QString()).toString();
     m_savedPort=s.value(QStringLiteral("server/port"),0).toInt();
     m_savedPhone=s.value(QStringLiteral("account/phone"),QString()).toString();
+    m_nam=new QNetworkAccessManager(this);
 
     connect(&m_socket,&QSslSocket::readyRead,this,&MobileClient::readMessages);
-    connect(&m_socket,&QSslSocket::encrypted,this,[this]{saveSettings();emit connectedChanged();emit notice(QStringLiteral("TLS 安全连接成功"),false);});
+    connect(&m_socket,&QSslSocket::encrypted,this,[this]{saveSettings();emit connectedChanged();emit notice(QStringLiteral("TLS 安全连接成功"),false);requestMapConfig();});
     connect(&m_socket,&QSslSocket::disconnected,this,[this]{emit connectedChanged();emit notice(QStringLiteral("服务器连接已断开"),true);});
     connect(&m_socket,QOverload<QAbstractSocket::SocketError>::of(&QSslSocket::error),this,[this](QAbstractSocket::SocketError){emit notice(m_socket.errorString(),true);});
     connect(&m_socket,QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),this,[this](const QList<QSslError>&){emit notice(QStringLiteral("TLS 证书校验失败：")+m_socket.errorString(),true);});
@@ -107,6 +114,7 @@ void MobileClient::handle(const QJsonObject &m)
     else if(type==QStringLiteral("wallet.recharge.result")){m_balance=d.value("balance").toDouble();emit accountChanged();emit notice(QStringLiteral("充值成功"),false);}
     else if(type==QStringLiteral("station.list.result")){m_stations.clear();for(const auto &v:d.value("stations").toArray()){const auto s=v.toObject();QVariantMap row;row["id"]=s.value("id").toVariant();row["name"]=s.value("name").toString();row["address"]=s.value("address").toString();row["price"]=s.value("price").toDouble();row["idle"]=s.value("idle").toInt();row["total"]=s.value("total").toInt();row["chargerId"]=s.value("chargerId").toVariant();row["longitude"]=s.value("longitude").toDouble();row["latitude"]=s.value("latitude").toDouble();m_stations.append(row);}m_selectedIndex=-1;m_chargers.clear();m_selectedChargerIndex=-1;emit stationsChanged();emit chargersChanged();emit selectedIndexChanged();emit selectedChargerIndexChanged();}
     else if(type==QStringLiteral("station.chargers.result")){m_chargers.clear();for(const auto &v:d.value("chargers").toArray()){const auto c=v.toObject();QVariantMap row;row["id"]=c.value("id").toVariant();row["code"]=c.value("code").toString();row["type"]=c.value("type").toString();row["rated_power"]=c.value("rated_power").toVariant();row["status"]=c.value("status").toString();row["available"]=c.value("status").toString()==QStringLiteral("IDLE");m_chargers.append(row);}m_selectedChargerIndex=-1;emit chargersChanged();emit selectedChargerIndexChanged();}
+    else if(type==QStringLiteral("map.config.result")){m_mapApiKey=d.value("apiKey").toString().trimmed();}
     else if(type==QStringLiteral("user.orders.result")){m_orders.clear();qint64 active=0;for(const auto &v:d.value("items").toArray()){const QJsonObject order=v.toObject();m_orders.append(order.toVariantMap());if(order.value("status").toString()==QStringLiteral("CHARGING"))active=order.value("id").toVariant().toLongLong();}if(active!=m_orderId){m_orderId=active;m_chargeStatus=active>0?QStringLiteral("正在充电 · 订单 #%1").arg(active):m_chargeStatus;emit chargeChanged();}emit ordersChanged();}
     else if(type==QStringLiteral("reservation.create.result")){m_reservationId=d.value("reservationId").toVariant().toLongLong();emit reservationChanged();emit notice(QStringLiteral("预约成功，20 分钟内有效"),false);}
     else if(type==QStringLiteral("reservation.cancel.result")){m_reservationId=0;m_reservationChargerId=0;emit reservationChanged();emit notice(QStringLiteral("预约已取消"),false);refreshStations();}
@@ -130,4 +138,49 @@ void MobileClient::notifyAndroid(const QString &title,const QString &text)
 #else
     Q_UNUSED(title);Q_UNUSED(text);
 #endif
+}
+
+void MobileClient::requestMapConfig()
+{
+    if(!connected())return;
+    send(QStringLiteral("map.config"));
+}
+
+void MobileClient::startNavigation(const QString &stationName, double latitude, double longitude)
+{
+    if(latitude==0.0&&longitude==0.0){emit notice(QStringLiteral("该站点暂无坐标，无法导航"),true);return;}
+    if(m_mapApiKey.isEmpty()){
+        requestMapConfig();
+        emit notice(QStringLiteral("正在获取地图配置，请稍后重试"),true);
+        return;
+    }
+    // 仿照 user_client：先通过腾讯 IP 定位接口取得真实起点坐标，再传给腾讯地图 URI 网页，
+    // 避免把"我的位置"解析交给网页端（CurrentLocation 无法被网页端按 IP 加载）。
+    QNetworkRequest req{QUrl(QStringLiteral("https://apis.map.qq.com/ws/location/v1/ip?key=%1").arg(m_mapApiKey))};
+    req.setHeader(QNetworkRequest::UserAgentHeader,QStringLiteral("ev-mobile-client/1.0"));
+    QNetworkReply *reply=m_nam->get(req);
+    connect(reply,&QNetworkReply::finished,this,[this,reply,stationName,latitude,longitude]{
+        reply->deleteLater();
+        if(reply->error()!=QNetworkReply::NoError){emit notice(QStringLiteral("网络错误：")+reply->errorString(),true);return;}
+        const QJsonObject o=QJsonDocument::fromJson(reply->readAll()).object();
+        if(o.value("status").toInt()!=0){emit notice(QStringLiteral("IP 定位失败：")+o.value("message").toString(),true);return;}
+        const QJsonObject loc=o.value("result").toObject().value("location").toObject();
+        openRoutePlan(QString::number(loc.value("lat").toDouble(),'f',6),
+                      QString::number(loc.value("lng").toDouble(),'f',6),
+                      stationName,latitude,longitude);
+    });
+}
+
+void MobileClient::openRoutePlan(const QString &fromLat,const QString &fromLng,
+                                 const QString &toName,double toLat,double toLng)
+{
+    const QString url=QStringLiteral(
+        "https://apis.map.qq.com/uri/v1/routeplan?type=drive"
+        "&from=%1&fromcoord=%2,%3"
+        "&to=%4&tocoord=%5,%6"
+        "&referer=com.course.evcharging")
+        .arg(QStringLiteral("我的位置"),fromLat,fromLng,
+             QString::fromUtf8(QUrl::toPercentEncoding(toName.isEmpty()?QStringLiteral("目的地"):toName)),
+             QString::number(toLat,'f',6),QString::number(toLng,'f',6));
+    QDesktopServices::openUrl(QUrl(url));
 }

@@ -479,7 +479,10 @@ ApplicationWindow {
                                                 toastTimer.restart()
                                                 return
                                             }
-                                            Qt.openUrlExternally("https://apis.map.qq.com/uri/v1/routeplan?type=drive&from=" + encodeURIComponent("我的位置") + "&fromcoord=CurrentLocation&to=" + encodeURIComponent(modelData.name) + "&tocoord=" + modelData.latitude.toFixed(6) + "," + modelData.longitude.toFixed(6) + "&referer=" + encodeURIComponent("com.course.evcharging"))
+                                            toastText.text = "正在定位当前位置…"
+                                            toast.opacity = 1
+                                            toastTimer.restart()
+                                            mobileClient.startNavigation(modelData.name, modelData.latitude, modelData.longitude)
                                         }
                                     }
                                 }

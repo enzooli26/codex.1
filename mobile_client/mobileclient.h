@@ -4,6 +4,8 @@
 #include <QSslSocket>
 #include <QVariant>
 
+class QNetworkAccessManager;
+
 class MobileClient : public QObject
 {
     Q_OBJECT
@@ -67,6 +69,7 @@ public:
     Q_INVOKABLE void startCharge(const QString &mode,double target);
     Q_INVOKABLE void stopCharge();
     Q_INVOKABLE void refreshChargeStatus();
+    Q_INVOKABLE void startNavigation(const QString &stationName, double latitude, double longitude);
 
 signals:
     void connectedChanged(); void loggedInChanged(); void accountChanged();
@@ -82,11 +85,14 @@ private:
     qint64 selectedChargerId() const;
     void notifyAndroid(const QString &title,const QString &text);
     void saveSettings();
+    void requestMapConfig();
+    void openRoutePlan(const QString &fromLat,const QString &fromLng,const QString &toName,double toLat,double toLng);
     QSslSocket m_socket; QByteArray m_buffer; QVariantList m_stations,m_orders,m_chargers;
     qint64 m_userId=0,m_reservationId=0,m_reservationChargerId=0,m_orderId=0;
     int m_selectedIndex=-1,m_selectedChargerIndex=-1;
     double m_balance=0; QString m_userText=QStringLiteral("请先登录");
     QString m_chargeStatus=QStringLiteral("尚未开始充电");
     QString m_savedHost; int m_savedPort=0; QString m_savedPhone;
+    QNetworkAccessManager *m_nam=nullptr; QString m_mapApiKey;
     double m_livePower=0,m_liveSoc=0,m_liveEnergy=0,m_liveCost=0; int m_liveDuration=0;
 };
