@@ -5,11 +5,13 @@
 #include <QSqlError>
 #include <QSqlQuery>
 
+// 获取当前 UTC 时间 ISO 格式字符串
 namespace { QString utcNow(){return QDateTime::currentDateTimeUtc().toString(Qt::ISODate);} }
 
 EdgeDatabase::EdgeDatabase(QObject *parent) : QObject(parent) {}
 EdgeDatabase::~EdgeDatabase(){if(m_db.isOpen())m_db.close();}
 
+// 打开数据库，创建表结构，按充电桩编号前缀自动分组站点
 bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QString *error)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
@@ -25,7 +27,7 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
         "CREATE INDEX IF NOT EXISTS idx_edge_telemetry_time ON telemetry(charger_id,sampled_at)"};
     for(const QString &statement:sql)if(!q.exec(statement)){if(error)*error=q.lastError().text();return false;}
     
-    // 清理可能存在的重复站点数据
+    // 清理重复站点数据
     QSqlQuery cleanStations(m_db);
     cleanStations.prepare("DELETE FROM stations WHERE id NOT IN (SELECT MIN(id) FROM stations GROUP BY name)");
     cleanStations.exec();
@@ -34,6 +36,7 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
     QMap<QString,QString> stationMap; // prefix -> station name
     stationMap["DL-SW-"] = "软件园充电站";
     stationMap["DL-GX-"] = "高新园区充电站";
+    // 按编号前缀匹配站点，无匹配归入"未分组站点"
     for(const QString &code:chargerCodes){
         QString stationName;
         for(auto it=stationMap.constBegin();it!=stationMap.constEnd();++it){
@@ -66,6 +69,7 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
     return true;
 }
 
+// 查询所有站点及充电桩统计（总数/充电中/空闲）
 QJsonArray EdgeDatabase::stations(QString *error)
 {
     QSqlQuery q(m_db);
@@ -82,6 +86,7 @@ QJsonArray EdgeDatabase::stations(QString *error)
     return result;
 }
 
+// 查询所有充电桩列表
 QJsonArray EdgeDatabase::chargers(QString *error)
 {
     QSqlQuery q(m_db);if(!q.exec("SELECT code,type,rated_power,status FROM chargers ORDER BY id"))
@@ -91,6 +96,7 @@ QJsonArray EdgeDatabase::chargers(QString *error)
     QJsonArray result;while(q.next())result.append(QJsonObject{{"code",q.value(0).toString()},{"type",q.value(1).toString()},{"ratedPower",q.value(2).toDouble()},{"status",q.value(3).toString()}});return result;
 }
 
+// 查询指定站点下的充电桩列表
 QJsonArray EdgeDatabase::chargersByStation(int stationId, QString *error)
 {
     QSqlQuery q(m_db);q.prepare("SELECT code,type,rated_power,status FROM chargers WHERE station_id=? ORDER BY id");
@@ -100,6 +106,7 @@ QJsonArray EdgeDatabase::chargersByStation(int stationId, QString *error)
     return result;
 }
 
+// 查询指定充电桩的活跃订单（CHARGING 或 SYNC_PENDING）
 QJsonObject EdgeDatabase::activeOrderForCharger(const QString &chargerCode, QString *error)
 {
     QSqlQuery q(m_db);
@@ -113,6 +120,7 @@ QJsonObject EdgeDatabase::activeOrderForCharger(const QString &chargerCode, QStr
         {"amount",q.value(6).toDouble()},{"endAt",q.value(7).toString()}};
 }
 
+// 更新订单支付状态（PENDING/PAID）
 bool EdgeDatabase::updateOrderPaymentStatus(qint64 orderId, const QString &status, QString *error)
 {
     QSqlQuery q(m_db);
@@ -123,6 +131,7 @@ bool EdgeDatabase::updateOrderPaymentStatus(qint64 orderId, const QString &statu
     return q.numRowsAffected() == 1;
 }
 
+// 记录订单断网时间戳
 bool EdgeDatabase::updateOrderDisconnectedAt(qint64 orderId, const QString &timestamp, QString *error)
 {
     QSqlQuery q(m_db);
@@ -133,6 +142,7 @@ bool EdgeDatabase::updateOrderDisconnectedAt(qint64 orderId, const QString &time
     return q.numRowsAffected() == 1;
 }
 
+// 查询待付款订单列表
 QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
 {
     QSqlQuery q(m_db);
@@ -152,14 +162,17 @@ QJsonArray EdgeDatabase::pendingPaymentOrders(QString *error)
     return result;
 }
 
+// 查询所有待处理订单（CHARGING 或 SYNC_PENDING）
 QJsonArray EdgeDatabase::pendingOrders(QString *error)
 {
     QSqlQuery q(m_db);if(!q.exec("SELECT o.central_order_id,c.code,o.status,o.mode,o.target,o.energy,o.duration,o.amount,o.start_at,COALESCE(o.end_at,'') FROM charge_orders o JOIN chargers c ON c.id=o.charger_id WHERE o.status IN ('CHARGING','SYNC_PENDING') ORDER BY o.id")){if(error)*error=q.lastError().text();return{};}
     QJsonArray result;while(q.next())result.append(QJsonObject{{"orderId",q.value(0).toLongLong()},{"chargerCode",q.value(1).toString()},{"status",q.value(2).toString()},{"mode",q.value(3).toString()},{"target",q.value(4).toDouble()},{"energy",q.value(5).toDouble()},{"duration",q.value(6).toInt()},{"amount",q.value(7).toDouble()},{"startAt",q.value(8).toString()},{"endAt",q.value(9).toString()}});return result;
 }
 
+// 创建充电订单：校验充电桩空闲、事务内插入订单并更新状态
 QJsonObject EdgeDatabase::startOrder(const QJsonObject &command,QString *error)
 {
+    // 幂等：orderId 已存在则返回已有订单
     const qint64 orderId=command.value("orderId").toVariant().toLongLong();const QString code=command.value("chargerCode").toString();
     QSqlQuery existing(m_db);existing.prepare("SELECT status FROM charge_orders WHERE central_order_id=?");existing.addBindValue(orderId);if(existing.exec()&&existing.next())return orderObject(orderId,error);
     if(!m_db.transaction()){if(error)*error=m_db.lastError().text();return{};}
@@ -172,6 +185,7 @@ QJsonObject EdgeDatabase::startOrder(const QJsonObject &command,QString *error)
     return orderObject(orderId,error);
 }
 
+// 映射本地 orderId 与服务端 orderId
 bool EdgeDatabase::updateServerOrderId(qint64 localOrderId, qint64 serverOrderId, QString *error)
 {
     QSqlQuery q(m_db);
@@ -182,12 +196,14 @@ bool EdgeDatabase::updateServerOrderId(qint64 localOrderId, qint64 serverOrderId
     return q.numRowsAffected() == 1;
 }
 
+// 根据 centralOrderId 查询订单信息
 QJsonObject EdgeDatabase::orderObject(qint64 centralOrderId,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("SELECT o.central_order_id,c.code,o.status,o.energy,o.duration,o.amount,COALESCE(o.end_at,'') FROM charge_orders o JOIN chargers c ON c.id=o.charger_id WHERE o.central_order_id=?");q.addBindValue(centralOrderId);
     if(!q.exec()||!q.next()){if(error)*error="本地订单不存在";return{};}return{{"orderId",q.value(0).toLongLong()},{"chargerCode",q.value(1).toString()},{"status",q.value(2).toString()},{"energy",q.value(3).toDouble()},{"duration",q.value(4).toInt()},{"amount",q.value(5).toDouble()},{"endAt",q.value(6).toString()}};
 }
 
+// 停止订单：CHARGING→SYNC_PENDING，释放充电桩
 QJsonObject EdgeDatabase::stopOrder(qint64 centralOrderId,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("UPDATE charge_orders SET status='SYNC_PENDING',end_at=? WHERE central_order_id=? AND status='CHARGING'");q.addBindValue(utcNow());q.addBindValue(centralOrderId);
@@ -196,11 +212,13 @@ QJsonObject EdgeDatabase::stopOrder(qint64 centralOrderId,QString *error)
     QSqlQuery release(m_db);release.prepare("UPDATE chargers SET status='IDLE' WHERE id=(SELECT charger_id FROM charge_orders WHERE central_order_id=?)");release.addBindValue(centralOrderId);release.exec();return orderObject(centralOrderId,error);
 }
 
+// 结算订单：SYNC_PENDING/COMPLETED→COMPLETED
 bool EdgeDatabase::settleOrder(qint64 centralOrderId,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("UPDATE charge_orders SET status='COMPLETED' WHERE central_order_id=? AND status IN ('SYNC_PENDING','COMPLETED')");q.addBindValue(centralOrderId);if(!q.exec()){if(error)*error=q.lastError().text();return false;}return q.numRowsAffected()==1;
 }
 
+// 中止订单：CHARGING→CANCELLED，释放充电桩（事务）
 bool EdgeDatabase::abortOrder(qint64 centralOrderId,QString *error)
 {
     if(!m_db.transaction()){if(error)*error=m_db.lastError().text();return false;}
@@ -216,28 +234,35 @@ QJsonObject EdgeDatabase::tick(const QString &chargerCode,double voltage,double 
     const qint64 localId=find.value(0).toLongLong(),centralId=find.value(1).toLongLong(),chargerId=find.value(7).toLongLong();const QString mode=find.value(2).toString();const double target=find.value(3).toDouble(),oldEnergy=find.value(4).toDouble(),price=find.value(6).toDouble();const int oldDuration=find.value(5).toInt();
     int sampleSeconds=2;if(mode=="TIME")sampleSeconds=qMax(0,qMin(2,static_cast<int>(qRound64(target*60.0))-oldDuration));
     int duration=oldDuration+sampleSeconds;double energy=oldEnergy+power*sampleSeconds/3600.0;
+    // ENERGY 模式下能量不超过目标值
     if(mode=="ENERGY"&&energy>target)energy=target;
+    // AMOUNT 模式下金额不超过目标值
     if(mode=="AMOUNT"&&price>0&&energy*price>target)energy=target/price;
     const double amount=energy*price;
+    // 三种模式达标条件判断
     const bool finished=(mode=="AMOUNT"&&amount+0.000001>=target)||(mode=="ENERGY"&&energy+0.000001>=target)||(mode=="TIME"&&duration>=qRound64(target*60.0));
     if(!m_db.transaction()){if(error)*error=m_db.lastError().text();return{};}
     QSqlQuery update(m_db);update.prepare("UPDATE charge_orders SET energy=?,duration=?,amount=?,status=?,end_at=CASE WHEN ? THEN ? ELSE end_at END WHERE id=?");update.addBindValue(energy);update.addBindValue(duration);update.addBindValue(amount);update.addBindValue(finished?"SYNC_PENDING":"CHARGING");update.addBindValue(finished);update.addBindValue(utcNow());update.addBindValue(localId);
     QSqlQuery sample(m_db);sample.prepare("INSERT INTO telemetry(charger_id,order_id,sampled_at,voltage,current,power,soc,energy_total) VALUES(?,?,?,?,?,?,?,?)");sample.addBindValue(chargerId);sample.addBindValue(localId);sample.addBindValue(utcNow());sample.addBindValue(voltage);sample.addBindValue(current);sample.addBindValue(power);sample.addBindValue(soc);sample.addBindValue(energy);
     if(!update.exec()||!sample.exec()){m_db.rollback();if(error)*error=update.lastError().text();return{};}
+    // 订单完成后释放充电桩，累加统计
     if(finished){QSqlQuery release(m_db);release.prepare("UPDATE chargers SET status='IDLE',total_sessions=total_sessions+1,total_duration=total_duration+? WHERE id=?");release.addBindValue(duration);release.addBindValue(chargerId);if(!release.exec()){m_db.rollback();if(error)*error=release.lastError().text();return{};}}
     if(!m_db.commit()){if(error)*error=m_db.lastError().text();return{};}return orderObject(centralId,error);
 }
 
+// 查询充电桩状态
 QString EdgeDatabase::chargerStatus(const QString &chargerCode,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("SELECT status FROM chargers WHERE code=?");q.addBindValue(chargerCode);if(!q.exec()||!q.next()){if(error)*error="本地充电桩不存在";return{};}return q.value(0).toString();
 }
 
+// 查询充电桩额定功率
 double EdgeDatabase::chargerRatedPower(const QString &chargerCode,QString *error)
 {
     QSqlQuery q(m_db);q.prepare("SELECT rated_power FROM chargers WHERE code=?");q.addBindValue(chargerCode);if(!q.exec()||!q.next()){if(error)*error="本地充电桩不存在";return 0;}return q.value(0).toDouble();
 }
 
+// 从服务端同步新增充电桩（自动创建站点）
 bool EdgeDatabase::addChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error)
 {
     // 查找或创建站点
@@ -257,6 +282,7 @@ bool EdgeDatabase::addChargerFromServer(const QString &code,const QString &type,
     return true;
 }
 
+// 事务内级联删除：遥测→订单→充电桩
 bool EdgeDatabase::removeChargerByCode(const QString &code,QString *error)
 {
     QSqlQuery findId(m_db);findId.prepare("SELECT id FROM chargers WHERE code=?");findId.addBindValue(code);
@@ -273,6 +299,7 @@ bool EdgeDatabase::removeChargerByCode(const QString &code,QString *error)
     return true;
 }
 
+// 从服务端同步更新充电桩属性
 bool EdgeDatabase::updateChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error)
 {
     qint64 stationId=-1;
@@ -293,6 +320,7 @@ bool EdgeDatabase::updateChargerFromServer(const QString &code,const QString &ty
     return q.numRowsAffected()==1;
 }
 
+// 差集清理：删除不在给定列表中的本地充电桩
 QStringList EdgeDatabase::removeChargersNotIn(const QStringList &codes,QString *error)
 {
     QStringList removed;
@@ -310,6 +338,7 @@ QStringList EdgeDatabase::removeChargersNotIn(const QStringList &codes,QString *
     return removed;
 }
 
+// 清理无充电桩的空站点
 QStringList EdgeDatabase::removeEmptyStations(QString *error)
 {
     QStringList removed;
@@ -327,6 +356,7 @@ QStringList EdgeDatabase::removeEmptyStations(QString *error)
     return removed;
 }
 
+// 从服务端同步新增站点
 bool EdgeDatabase::addStationFromServer(const QString &name,QString *error)
 {
     if(name.isEmpty()){if(error)*error="站点名称不能为空";return false;}
@@ -335,6 +365,7 @@ bool EdgeDatabase::addStationFromServer(const QString &name,QString *error)
     return true;
 }
 
+// 站点改名
 bool EdgeDatabase::updateStationName(const QString &oldName,const QString &newName,QString *error)
 {
     if(oldName.isEmpty()||newName.isEmpty()){if(error)*error="站点名称不能为空";return false;}
@@ -344,6 +375,7 @@ bool EdgeDatabase::updateStationName(const QString &oldName,const QString &newNa
     return q.numRowsAffected()==1;
 }
 
+// 删除站点及其下所有充电桩
 QStringList EdgeDatabase::removeStationByName(const QString &name,QString *error)
 {
     QStringList removedChargers;

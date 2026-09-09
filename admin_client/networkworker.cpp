@@ -18,6 +18,7 @@ NetworkWorker::NetworkWorker(QObject *parent) : QObject(parent)
             this, &NetworkWorker::onSslErrors);
 }
 
+// 析构函数：中断连接并释放 socket 资源
 NetworkWorker::~NetworkWorker()
 {
     if (m_socket) {
@@ -32,6 +33,7 @@ bool NetworkWorker::isEncrypted() const
     return m_socket && m_socket->isEncrypted();
 }
 
+// 发起 TLS 连接到服务端
 void NetworkWorker::connectToServer(const QString &host, quint16 port)
 {
     m_buffer.clear();
@@ -41,12 +43,14 @@ void NetworkWorker::connectToServer(const QString &host, quint16 port)
         emit connectionError(error);
 }
 
+// 断开与服务端的连接
 void NetworkWorker::disconnectFromServer()
 {
     if (m_socket && m_socket->state() != QAbstractSocket::UnconnectedState)
         m_socket->disconnectFromHost();
 }
 
+// 发送带 UUID 的请求消息（仅在 TLS 连接建立后有效）
 void NetworkWorker::sendRequest(const QString &type, const QJsonObject &payload)
 {
     if (!m_socket || !m_socket->isEncrypted())
@@ -57,6 +61,7 @@ void NetworkWorker::sendRequest(const QString &type, const QJsonObject &payload)
     m_socket->write(frame);
 }
 
+// 接收数据，帧解码后分发消息
 void NetworkWorker::onReadyRead()
 {
     m_buffer.append(m_socket->readAll());
@@ -66,16 +71,19 @@ void NetworkWorker::onReadyRead()
         emit messageReceived(msg);
 }
 
+// TLS 握手成功，发出连接信号
 void NetworkWorker::onEncrypted()
 {
     emit connected();
 }
 
+// 连接断开，发出断开信号
 void NetworkWorker::onDisconnected()
 {
     emit disconnected();
 }
 
+// 忽略 SSL 错误并发出错误信号
 void NetworkWorker::onSslErrors(const QList<QSslError> &errors)
 {
     if (!errors.isEmpty())

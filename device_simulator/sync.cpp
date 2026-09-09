@@ -6,12 +6,14 @@
 #include <QSet>
 #include <QUuid>
 
+// 发送带 UUID 的请求消息
 void Simulator::sendRequest(const QString &type, const QJsonObject &payload)
 {
     emit sendMessage(Protocol::request(type, payload,
         QUuid::createUuid().toString(QUuid::WithoutBraces)));
 }
 
+// 向服务端同步本地待处理订单
 void Simulator::sendSync()
 {
     if(!m_registered) return;
@@ -26,6 +28,7 @@ void Simulator::sendSync()
         qWarning() << error;
 }
 
+// 同步断网期间产生的待付款订单到服务端
 void Simulator::syncPendingOrders()
 {
     if(!m_registered) return;
@@ -40,6 +43,7 @@ void Simulator::syncPendingOrders()
     for(int i = 0; i < orders.size(); ++i) {
         const QJsonObject o = orders[i].toObject();
         if(o.value("status").toString() != "SYNC_PENDING") continue;
+        // 仅发送 SYNC_PENDING 状态的订单
         syncOrders.append(QJsonObject{
             {"orderId", o.value("centralOrderId").toVariant().toLongLong()},
             {"chargerCode", o.value("chargerCode").toString()},
@@ -54,6 +58,7 @@ void Simulator::syncPendingOrders()
     sendRequest("device.sync", {{"orders", syncOrders}});
 }
 
+// 停止指定充电桩的充电订单，本地停止并触发同步
 void Simulator::stopOrder(const QString &chargerCode)
 {
     QString error;
@@ -74,6 +79,7 @@ void Simulator::stopOrder(const QString &chargerCode)
     if(m_registered) sendSync();
 }
 
+// 注册成功后全量比对充电桩列表：新增/更新/删除/清理空站点
 void Simulator::syncChargerList(const QJsonArray &serverChargers)
 {
     QString err;
@@ -106,6 +112,7 @@ void Simulator::syncChargerList(const QJsonArray &serverChargers)
         const QString code = c.value("code").toString();
         if(code.isEmpty()) continue;
         if(localCodes.contains(code)) {
+            // 本地已有该充电桩，更新属性
             bool updated = false;
             QMetaObject::invokeMethod(m_database, [this, code, c, &updated, &err]() {
                 updated = m_database->updateChargerFromServer(
@@ -133,12 +140,14 @@ void Simulator::syncChargerList(const QJsonArray &serverChargers)
                 m_soc[code] = 35.0;
                 emit chargerAdded(code);
                 qInfo() << "Synced new charger from server:" << code;
-            } else {
+        } else {
+            // 本地无该充电桩，新增并初始化 SOC
                 qWarning() << "Failed to sync charger" << code << ":" << err;
             }
         }
     }
 
+    // 删除本地多余充电桩
     QStringList removed;
     QMetaObject::invokeMethod(m_database, [this, serverCodeList, &removed, &err]() {
         removed = m_database->removeChargersNotIn(serverCodeList, &err);
@@ -149,6 +158,7 @@ void Simulator::syncChargerList(const QJsonArray &serverChargers)
         qInfo() << "Removed local charger not on server:" << code;
     }
 
+    // 清理无充电桩的空站点
     QStringList removedStations;
     QMetaObject::invokeMethod(m_database, [this, &removedStations, &err]() {
         removedStations = m_database->removeEmptyStations(&err);

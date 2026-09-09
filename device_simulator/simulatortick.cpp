@@ -1,5 +1,6 @@
 #include "simulatortick.h"
 
+// 创建三个定时器：心跳 5s、遥测 2s、超时 10s（单次触发）
 SimulatorTick::SimulatorTick(QObject *parent)
     : QObject(parent)
 {
@@ -15,6 +16,7 @@ SimulatorTick::SimulatorTick(QObject *parent)
     connect(m_timeoutTimer, &QTimer::timeout, this, &SimulatorTick::heartbeatTimeout);
 }
 
+// 启动所有定时器
 void SimulatorTick::start()
 {
     m_heartbeatTimer->start();
@@ -22,6 +24,7 @@ void SimulatorTick::start()
     m_timeoutTimer->start();
 }
 
+// 停止所有定时器
 void SimulatorTick::stop()
 {
     m_heartbeatTimer->stop();
@@ -35,11 +38,13 @@ void SimulatorTick::stopHeartbeat()
     m_timeoutTimer->stop();
 }
 
+// 收到心跳响应后重置超时计时器
 void SimulatorTick::resetHeartbeatTimer()
 {
     m_timeoutTimer->start();
 }
 
+// 重置遥测定时器
 void SimulatorTick::resetTelemetryTimer()
 {
     m_telemetryTimer->start();

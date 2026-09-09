@@ -7,6 +7,7 @@
 #include <QMetaObject>
 #include <QUuid>
 
+// 网络连上后：启动定时器、发送注册请求
 void Simulator::onNetworkConnected()
 {
     m_registered = false;
@@ -23,6 +24,7 @@ void Simulator::onNetworkConnected()
     emit disconnectedStateChanged(m_disconnected);
 }
 
+// 网络断开：停止定时器、标记断开状态、检测待付款订单
 void Simulator::onNetworkDisconnected()
 {
     m_registered = false;
@@ -35,6 +37,7 @@ void Simulator::onNetworkDisconnected()
     checkDisconnection();
 }
 
+// 心跳超时：累计 3 次超时判定为网络断开
 void Simulator::onHeartbeatTimeout()
 {
     m_heartbeatFailures++;
@@ -47,6 +50,7 @@ void Simulator::onHeartbeatTimeout()
     }
 }
 
+// 将所有待付款订单标记为断网状态（记录 disconnected_at）
 void Simulator::checkDisconnection()
 {
     QString error;

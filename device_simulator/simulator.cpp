@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QMetaObject>
 
+// 初始化充电桩默认 SOC 为 35%
 Simulator::Simulator(const QStringList &codes, const QString &databasePath,
                      const QString &token, QObject *parent)
     : QObject(parent), m_codes(codes), m_databasePath(databasePath), m_token(token)
@@ -12,6 +13,7 @@ Simulator::Simulator(const QStringList &codes, const QString &databasePath,
     for(const QString &code : m_codes) m_soc[code] = 35.0;
 }
 
+// 建立 Simulator与DeviceNetwork 信号连接
 void Simulator::setNetwork(DeviceNetwork *network)
 {
     m_network = network;
@@ -23,11 +25,13 @@ void Simulator::setNetwork(DeviceNetwork *network)
     connect(network, &DeviceNetwork::messageReceived, this, &Simulator::onMessageReceived);
 }
 
+// 保存数据库指针
 void Simulator::setDatabase(EdgeDatabase *database)
 {
     m_database = database;
 }
 
+// 建立 Simulator ↔ SimulatorTick 信号连接
 void Simulator::setTick(SimulatorTick *tick)
 {
     m_tick = tick;
@@ -36,6 +40,7 @@ void Simulator::setTick(SimulatorTick *tick)
     connect(tick, &SimulatorTick::heartbeatTimeout, this, &Simulator::onHeartbeatTimeout);
 }
 
+// 在数据库线程中打开 SQLite 并创建表结构
 bool Simulator::initialize(QString *error)
 {
     bool ok = false;
@@ -45,6 +50,7 @@ bool Simulator::initialize(QString *error)
     return ok;
 }
 
+// 记录主机信息并触发网络连接
 void Simulator::start(const QString &host, quint16 port)
 {
     m_host = host;
@@ -52,12 +58,13 @@ void Simulator::start(const QString &host, quint16 port)
     emit connectNetwork(host, port);
 }
 
+// 手动断开：停止定时器，清注册状态，触发断开信号
 void Simulator::disconnectFromServer()
 {
     m_manualDisconnect = true;
     m_registered = false;
     m_heartbeatFailures = 0;
-    if(m_tick) QMetaObject::invokeMethod(m_tick, "stopHeartbeat", Qt::QueuedConnection);
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "stop", Qt::QueuedConnection);
     emit disconnectNetwork();
     qInfo() << "simulator manually disconnected; local charging continues";
     emit connectionChanged(false);
@@ -65,12 +72,14 @@ void Simulator::disconnectFromServer()
     emit disconnectedStateChanged(m_disconnected);
 }
 
+// 手动重连：重新发起网络连接
 void Simulator::connectToServer()
 {
     m_manualDisconnect = false;
     emit connectNetwork(m_host, m_port);
 }
 
+// 查询所有站点（含充电桩统计）
 QJsonArray Simulator::stations(QString *error)
 {
     QJsonArray result;
@@ -80,6 +89,7 @@ QJsonArray Simulator::stations(QString *error)
     return result;
 }
 
+// 查询指定站点下的充电桩
 QJsonArray Simulator::chargersByStation(int stationId, QString *error)
 {
     QJsonArray result;
@@ -89,6 +99,7 @@ QJsonArray Simulator::chargersByStation(int stationId, QString *error)
     return result;
 }
 
+// 查询充电桩的当前活跃订单
 QJsonObject Simulator::activeOrderForCharger(const QString &code, QString *error)
 {
     QJsonObject result;
@@ -98,6 +109,7 @@ QJsonObject Simulator::activeOrderForCharger(const QString &code, QString *error
     return result;
 }
 
+// 查询充电桩状态（IDLE/CHARGING/FAULT）
 QString Simulator::chargerStatus(const QString &code, QString *error)
 {
     QString result;

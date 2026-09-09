@@ -13,6 +13,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName("ev_device_simulator");
 
+    // 解析命令行参数：host/port/codes/database/token
     QCommandLineParser p;
     p.addHelpOption();
     p.addOption({"host", "Central server host", "host", "127.0.0.1"});
@@ -22,6 +23,7 @@ int main(int argc, char *argv[])
     p.addOption({"token", "Shared charger credential", "token", "course-device-token"});
     p.process(app);
 
+    // 分割、去重、去空，至少需要一个充电桩编号
     QStringList codes = p.value("code").split(',', Qt::SkipEmptyParts);
     for(QString &code : codes) code = code.trimmed();
     codes.removeDuplicates();
@@ -30,6 +32,7 @@ int main(int argc, char *argv[])
     const QString dbPath = QDir::cleanPath(QDir::current().absoluteFilePath(p.value("database")));
     const QString token = p.value("token");
 
+    //针对不同的功能启动不同的线程
     // ===== 数据库线程 =====
     QThread dbThread;
     dbThread.setObjectName("DatabaseThread");
@@ -59,7 +62,7 @@ int main(int argc, char *argv[])
     tick->moveToThread(&tickThread);
     tickThread.start();
 
-    // 连接各模块
+    // 跨线程设置网络和定时器依赖
     QMetaObject::invokeMethod(simulator, [simulator, network, tick]() {
         simulator->setNetwork(network);
         simulator->setTick(tick);
@@ -90,13 +93,13 @@ int main(int argc, char *argv[])
                          static_cast<quint16>(p.value("port").toUInt()));
     }, Qt::QueuedConnection);
 
-    // UI 在主线程
+    // 创建并显示主窗口
     SimWindow w(simulator);
     w.show();
 
     const int ret = app.exec();
 
-    // 清理：按创建反序退出
+    // 按创建反序退出线程并释放资源
     tickThread.quit(); tickThread.wait();
     netThread.quit(); netThread.wait();
     bizThread.quit(); bizThread.wait();

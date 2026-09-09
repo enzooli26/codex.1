@@ -4,11 +4,13 @@
 #include <QJsonArray>
 #include <QMetaObject>
 
+// 收到网络消息后转入分发器
 void Simulator::onMessageReceived(QJsonObject message)
 {
     dispatch(message);
 }
 
+// 根据消息 type 分发到对应处理逻辑
 void Simulator::dispatch(const QJsonObject &message)
 {
     const QString type = message.value("type").toString();
@@ -18,6 +20,7 @@ void Simulator::dispatch(const QJsonObject &message)
     QString error;
     QJsonObject data;
 
+    // 设备注册响应：code=0 表示成功，同步充电桩列表并启动心跳
     if(type == "device.register.result") {
         if(message.value("code").toInt() != 0) {
             qWarning() << "device registration rejected" << message.value("message").toString();
@@ -32,6 +35,7 @@ void Simulator::dispatch(const QJsonObject &message)
         syncPendingOrders();
         return;
     }
+    // 同步响应：遍历结果，COMPLETED 状态订单在本地结算
     if(type == "device.sync.result") {
         if(message.value("code").toInt() != 0) {
             qWarning() << "sync rejected" << message.value("message").toString();
@@ -48,6 +52,7 @@ void Simulator::dispatch(const QJsonObject &message)
         emit syncCompleted();
         return;
     }
+    // 服务端下发开始充电指令
     if(type == "device.order.start") {
         QMetaObject::invokeMethod(m_database, [this, payload, &data, &error]() {
             data = m_database->startOrder(payload, &error);
@@ -58,6 +63,7 @@ void Simulator::dispatch(const QJsonObject &message)
             emit orderChanged(code, data);
         }
     }
+    // 服务端下发停止充电指令
     else if(type == "device.order.stop") {
         QMetaObject::invokeMethod(m_database, [this, payload, &data, &error]() {
             data = m_database->stopOrder(payload.value("orderId").toVariant().toLongLong(), &error);
@@ -70,6 +76,7 @@ void Simulator::dispatch(const QJsonObject &message)
             }
         }
     }
+    // 服务端返回全局 orderId 用于映射
     else if(type == "device.order.start.result") {
         if(message.value("code").toInt() == 0) {
             const qint64 localOrderId = payload.value("orderId").toVariant().toLongLong();
@@ -81,6 +88,7 @@ void Simulator::dispatch(const QJsonObject &message)
             }
         }
     }
+    // 服务端确认结算订单
     else if(type == "device.order.settled") {
         bool settled = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &settled, &error]() {
@@ -88,6 +96,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }, Qt::BlockingQueuedConnection);
         if(settled) data = {{"settled", true}};
     }
+    // 服务端中止订单（充电桩恢复 IDLE）
     else if(type == "device.order.abort") {
         bool aborted = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &aborted, &error]() {
@@ -95,6 +104,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }, Qt::BlockingQueuedConnection);
         if(aborted) data = {{"aborted", true}};
     }
+    // 断网期间订单支付状态批量更新为 PAID
     else if(type == "device.disconnected.sync.result") {
         const QJsonArray results = payload.value("results").toArray();
         for(const auto &value : results) {
@@ -108,6 +118,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         return;
     }
+    // 服务端推送新增充电桩，同步本地数据库
     else if(type == "device.charger.added") {
         bool added = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &added, &error]() {
@@ -128,6 +139,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         return;
     }
+    // 服务端推送删除充电桩，同步本地数据库
     else if(type == "device.charger.removed") {
         bool removed = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &removed, &error]() {
@@ -144,6 +156,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         return;
     }
+    // 服务端推送更新充电桩，同步本地数据库
     else if(type == "device.charger.updated") {
         bool updated = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &updated, &error]() {
@@ -163,6 +176,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         return;
     }
+    // 服务端推送新增站点
     else if(type == "device.station.added") {
         bool added = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &added, &error]() {
@@ -175,6 +189,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         return;
     }
+    // 服务端推送站点改名
     else if(type == "device.station.updated") {
         bool updated = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &updated, &error]() {
@@ -191,6 +206,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         return;
     }
+    // 服务端推送删除站点（级联删除充电桩）
     else if(type == "device.station.removed") {
         QStringList removedChargers;
         QMetaObject::invokeMethod(m_database, [this, payload, &removedChargers, &error]() {
@@ -208,6 +224,7 @@ void Simulator::dispatch(const QJsonObject &message)
         return;
     }
     else return;
+    // 向服务端发送响应
     emit sendMessage(Protocol::response(message, error.isEmpty() ? 0 : 400,
                                          error.isEmpty() ? "ok" : error, data));
 }
