@@ -10,6 +10,14 @@
 #include <QUrl>
 #include <QDesktopServices>
 #include <QPushButton>
+#include <QLabel>
+#include <QLineEdit>
+#include <QStackedWidget>
+#include <QTableWidget>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QFrame>
+#include <QSizePolicy>
 #include <QDir>
 #include <QFile>
 #include <QNetworkAccessManager>
@@ -37,6 +45,7 @@ protected:
 UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindow)
 {
     ui->setupUi(this);
+    setupDesktopWorkspace();
     m_navWebView=new QWebEngineView(ui->navPage);
     m_navWebView->setMinimumHeight(200);
     m_navWebView->setPage(new LogPage(m_navWebView));
@@ -90,7 +99,7 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
     connect(ui->cancelButton,&QPushButton::clicked,this,&UserWindow::cancelReservation);
     connect(ui->startButton,&QPushButton::clicked,this,&UserWindow::startCharge);
     connect(ui->stopButton,&QPushButton::clicked,this,&UserWindow::stopCharge);
-    connect(ui->navBackButton,&QPushButton::clicked,this,[this]{ui->stackedWidget->setCurrentIndex(0);});
+    connect(ui->navBackButton,&QPushButton::clicked,this,[this]{ui->stackedWidget->setCurrentIndex(0);showWorkspacePage(1);});
     connect(ui->stackedWidget,&QStackedWidget::currentChanged,this,[this](int idx){
         if(idx==1 && m_mapPageLoaded && !m_mapJsReady){
             m_navWebView->page()->runJavaScript("wakeMap()");
@@ -136,6 +145,267 @@ UserWindow::UserWindow(QWidget *parent):QMainWindow(parent),ui(new Ui::UserWindo
         }
     });
 }
+
+void UserWindow::setupDesktopWorkspace()
+{
+    resize(1040, 700);
+    setMinimumSize(900, 620);
+    ui->brandLabel->setText(QStringLiteral("⚡ 悦充 PC 客户端"));
+    ui->phoneShell->setStyleSheet(
+        "QFrame#phoneShell{background:#f4f7fb;border:1px solid #dce4ef;border-radius:18px}");
+
+    auto *root = ui->verticalLayout;
+    root->removeWidget(ui->accountCard);
+    root->removeWidget(ui->stationCard);
+    root->removeWidget(ui->chargeCard);
+    root->removeWidget(ui->footerLabel);
+    ui->footerLabel->hide();
+
+    const QString cardStyle =
+        "QFrame{background:#ffffff;border:1px solid #e2e9f3;border-radius:12px}"
+        "QLabel{border:0;background:transparent}";
+    const QString titleStyle = "font-size:17px;font-weight:700;color:#263550";
+    const QString mutedStyle = "color:#7b899e";
+    const QString metricStyle = "font-size:20px;font-weight:700;color:#2457d6";
+
+    m_contentPages = new QStackedWidget(ui->phoneShell);
+    m_contentPages->setObjectName("pcContentPages");
+    m_contentPages->setMinimumHeight(470);
+    root->insertWidget(1, m_contentPages, 1);
+
+    // 首页：账户欢迎、业务概览和快捷入口。
+    auto *homePage = new QWidget(m_contentPages);
+    auto *homeLayout = new QVBoxLayout(homePage);
+    homeLayout->setContentsMargins(0, 0, 0, 0);
+    homeLayout->setSpacing(12);
+    auto *hero = new QFrame(homePage);
+    hero->setStyleSheet(cardStyle);
+    auto *heroLayout = new QVBoxLayout(hero);
+    heroLayout->setContentsMargins(22, 18, 22, 18);
+    auto *heroTitle = new QLabel(QStringLiteral("欢迎使用悦充"), hero);
+    heroTitle->setStyleSheet("font-size:22px;font-weight:700;color:#2457d6;border:0");
+    m_homeGreetingLabel = new QLabel(QStringLiteral("登录后可查看账户与充电服务"), hero);
+    m_homeGreetingLabel->setStyleSheet(mutedStyle + ";border:0");
+    heroLayout->addWidget(heroTitle);
+    heroLayout->addWidget(m_homeGreetingLabel);
+    homeLayout->addWidget(hero);
+
+    auto *stats = new QHBoxLayout;
+    stats->setSpacing(12);
+    auto makeMetric = [&](const QString &title, QLabel **value, const QString &initial) {
+        auto *card = new QFrame(homePage);
+        card->setStyleSheet(cardStyle);
+        auto *layout = new QVBoxLayout(card);
+        layout->setContentsMargins(16, 14, 16, 14);
+        auto *caption = new QLabel(title, card);
+        caption->setStyleSheet(mutedStyle + ";border:0");
+        *value = new QLabel(initial, card);
+        (*value)->setStyleSheet(metricStyle + ";border:0");
+        (*value)->setWordWrap(true);
+        layout->addWidget(caption);
+        layout->addWidget(*value);
+        stats->addWidget(card, 1);
+    };
+    makeMetric(QStringLiteral("当前充电"), &m_homeActiveOrderLabel, QStringLiteral("暂无进行中订单"));
+    makeMetric(QStringLiteral("可用站点"), &m_homeStationCountLabel, QStringLiteral("0"));
+    makeMetric(QStringLiteral("订单记录"), &m_homeOrderCountLabel, QStringLiteral("0"));
+    homeLayout->addLayout(stats);
+
+    auto *quick = new QHBoxLayout;
+    auto *findButton = new QPushButton(QStringLiteral("查找附近充电站"), homePage);
+    auto *chargeButton = new QPushButton(QStringLiteral("进入充电中心"), homePage);
+    auto *ordersButton = new QPushButton(QStringLiteral("查看我的订单"), homePage);
+    chargeButton->setProperty("class", "secondary");
+    ordersButton->setProperty("class", "secondary");
+    quick->addWidget(findButton);
+    quick->addWidget(chargeButton);
+    quick->addWidget(ordersButton);
+    homeLayout->addLayout(quick);
+    homeLayout->addStretch(1);
+    m_contentPages->addWidget(homePage);
+
+    // 找桩页：复用原有站点表，并加入站名/地址本地模糊筛选。
+    auto *stationPage = new QWidget(m_contentPages);
+    auto *stationPageLayout = new QVBoxLayout(stationPage);
+    stationPageLayout->setContentsMargins(0, 0, 0, 0);
+    ui->stationCard->setStyleSheet(cardStyle);
+    ui->stationTable->setMinimumHeight(390);
+    auto *stationHeader = qobject_cast<QHBoxLayout *>(ui->stationLayout->itemAt(0)->layout());
+    m_stationSearchEdit = new QLineEdit(ui->stationCard);
+    m_stationSearchEdit->setPlaceholderText(QStringLiteral("搜索站名或地址…"));
+    if (stationHeader) stationHeader->insertWidget(1, m_stationSearchEdit, 1);
+    stationPageLayout->addWidget(ui->stationCard);
+    m_contentPages->addWidget(stationPage);
+
+    // 充电页：左侧操作，右侧展示所有进行中的订单。
+    auto *chargePage = new QWidget(m_contentPages);
+    auto *chargePageLayout = new QHBoxLayout(chargePage);
+    chargePageLayout->setContentsMargins(0, 0, 0, 0);
+    chargePageLayout->setSpacing(12);
+    ui->chargeCard->setStyleSheet(cardStyle);
+    ui->chargeCard->setMinimumWidth(320);
+    ui->chargeCard->setMaximumWidth(370);
+    chargePageLayout->addWidget(ui->chargeCard);
+    auto *activeCard = new QFrame(chargePage);
+    activeCard->setStyleSheet(cardStyle);
+    auto *activeLayout = new QVBoxLayout(activeCard);
+    auto *activeTitle = new QLabel(QStringLiteral("正在进行的订单"), activeCard);
+    activeTitle->setStyleSheet(titleStyle + ";border:0");
+    auto *activeHint = new QLabel(QStringLiteral("订单状态每 10 秒自动刷新"), activeCard);
+    activeHint->setStyleSheet(mutedStyle + ";border:0");
+    m_activeOrdersTable = new QTableWidget(activeCard);
+    activeLayout->addWidget(activeTitle);
+    activeLayout->addWidget(activeHint);
+    activeLayout->addWidget(m_activeOrdersTable, 1);
+    chargePageLayout->addWidget(activeCard, 1);
+    m_contentPages->addWidget(chargePage);
+
+    // 我的：账户充值和历史订单。
+    auto *profilePage = new QWidget(m_contentPages);
+    auto *profileLayout = new QVBoxLayout(profilePage);
+    profileLayout->setContentsMargins(0, 0, 0, 0);
+    profileLayout->setSpacing(12);
+    ui->accountCard->setStyleSheet(cardStyle);
+    profileLayout->addWidget(ui->accountCard, 0);
+    auto *historyCard = new QFrame(profilePage);
+    historyCard->setStyleSheet(cardStyle);
+    auto *historyLayout = new QVBoxLayout(historyCard);
+    auto *historyHeader = new QHBoxLayout;
+    auto *historyTitle = new QLabel(QStringLiteral("历史订单"), historyCard);
+    historyTitle->setStyleSheet(titleStyle + ";border:0");
+    m_orderSummaryLabel = new QLabel(QStringLiteral("共 0 条"), historyCard);
+    m_orderSummaryLabel->setStyleSheet(mutedStyle + ";border:0");
+    auto *refreshOrders = new QPushButton(QStringLiteral("刷新订单"), historyCard);
+    refreshOrders->setProperty("class", "secondary");
+    historyHeader->addWidget(historyTitle);
+    historyHeader->addWidget(m_orderSummaryLabel);
+    historyHeader->addStretch(1);
+    historyHeader->addWidget(refreshOrders);
+    m_historyOrdersTable = new QTableWidget(historyCard);
+    historyLayout->addLayout(historyHeader);
+    historyLayout->addWidget(m_historyOrdersTable, 1);
+    profileLayout->addWidget(historyCard, 1);
+    m_contentPages->addWidget(profilePage);
+
+    const QStringList orderHeaders = {QStringLiteral("订单"), QStringLiteral("电站"),
+        QStringLiteral("电桩"), QStringLiteral("状态"), QStringLiteral("模式"),
+        QStringLiteral("电量"), QStringLiteral("时长"), QStringLiteral("金额"),
+        QStringLiteral("开始时间"), QStringLiteral("结束时间")};
+    for (auto *table : {m_activeOrdersTable, m_historyOrdersTable}) {
+        table->setColumnCount(orderHeaders.size());
+        table->setHorizontalHeaderLabels(orderHeaders);
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        table->setAlternatingRowColors(true);
+        table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        table->horizontalHeader()->setStretchLastSection(true);
+        table->verticalHeader()->setVisible(false);
+    }
+
+    // 原来的底部文字改为可点击的四项导航栏。
+    auto *navBar = new QFrame(ui->phoneShell);
+    navBar->setObjectName("workspaceNavBar");
+    navBar->setStyleSheet(
+        "QFrame#workspaceNavBar{background:#ffffff;border:1px solid #e2e9f3;border-radius:12px}"
+        "QPushButton{background:transparent;color:#6f7f96;border:0;border-radius:8px;padding:9px 18px}"
+        "QPushButton:hover{background:#f0f4fb;color:#315fc4}"
+        "QPushButton:checked{background:#e5edff;color:#2457d6;font-weight:700}");
+    auto *navLayout = new QHBoxLayout(navBar);
+    navLayout->setContentsMargins(8, 5, 8, 5);
+    const QStringList navNames = {QStringLiteral("首页"), QStringLiteral("找桩"),
+                                  QStringLiteral("充电"), QStringLiteral("我的")};
+    for (int index = 0; index < navNames.size(); ++index) {
+        auto *button = new QPushButton(navNames.at(index), navBar);
+        button->setCheckable(true);
+        button->setAutoExclusive(true);
+        if (index == 0) button->setChecked(true);
+        navLayout->addWidget(button, 1);
+        m_workspaceButtons.append(button);
+        connect(button, &QPushButton::clicked, this, [this, index]{ showWorkspacePage(index); });
+    }
+    root->addWidget(navBar);
+
+    connect(findButton, &QPushButton::clicked, this, [this]{ showWorkspacePage(1); });
+    connect(chargeButton, &QPushButton::clicked, this, [this]{ showWorkspacePage(2); });
+    connect(ordersButton, &QPushButton::clicked, this, [this]{ showWorkspacePage(3); });
+    connect(refreshOrders, &QPushButton::clicked, this, [this]{ sendRequest("user.orders"); });
+    connect(m_stationSearchEdit, &QLineEdit::textChanged, this, &UserWindow::filterStations);
+}
+
+void UserWindow::showWorkspacePage(int index)
+{
+    if (!m_contentPages || index < 0 || index >= m_contentPages->count()) return;
+    m_contentPages->setCurrentIndex(index);
+    if (index < m_workspaceButtons.size()) m_workspaceButtons.at(index)->setChecked(true);
+    if (index == 1) refreshStations();
+    if (index == 2 || index == 3) sendRequest("user.orders");
+}
+
+void UserWindow::filterStations(const QString &keyword)
+{
+    const QString query = keyword.trimmed();
+    for (int row = 0; row < ui->stationTable->rowCount(); ++row) {
+        const QString name = ui->stationTable->item(row, 0) ? ui->stationTable->item(row, 0)->text() : QString();
+        const QString address = ui->stationTable->item(row, 1) ? ui->stationTable->item(row, 1)->text() : QString();
+        ui->stationTable->setRowHidden(row, !query.isEmpty() &&
+            !name.contains(query, Qt::CaseInsensitive) && !address.contains(query, Qt::CaseInsensitive));
+    }
+}
+
+void UserWindow::populateOrderTables(const QJsonArray &orders)
+{
+    if (!m_activeOrdersTable || !m_historyOrdersTable) return;
+    m_activeOrdersTable->setRowCount(0);
+    m_historyOrdersTable->setRowCount(0);
+    qint64 activeId = 0;
+    int historyCount = 0;
+    auto appendOrder = [](QTableWidget *table, const QJsonObject &order) {
+        const int row = table->rowCount();
+        table->insertRow(row);
+        const QString status = order.value("status").toString();
+        const QMap<QString, QString> statusNames = {{"STARTING", QStringLiteral("启动中")},
+            {"CHARGING", QStringLiteral("充电中")}, {"PENDING_PAYMENT", QStringLiteral("待结算")},
+            {"COMPLETED", QStringLiteral("已完成")}, {"CANCELLED", QStringLiteral("已取消")}};
+        const QMap<QString, QString> modeNames = {{"AMOUNT", QStringLiteral("按金额")},
+            {"ENERGY", QStringLiteral("按电量")}, {"TIME", QStringLiteral("按时间")}};
+        const int duration = order.value("duration").toInt();
+        const QStringList values = {
+            QString::number(order.value("id").toVariant().toLongLong()),
+            order.value("station").toString(), order.value("charger").toString(),
+            statusNames.value(status, status), modeNames.value(order.value("mode").toString(), order.value("mode").toString()),
+            QString::number(order.value("energy").toDouble(), 'f', 2) + " kWh",
+            QStringLiteral("%1 分 %2 秒").arg(duration / 60).arg(duration % 60),
+            QStringLiteral("¥%1").arg(order.value("amount").toDouble(), 0, 'f', 2),
+            order.value("startAt").toString(), order.value("endAt").toString()
+        };
+        for (int column = 0; column < values.size(); ++column)
+            table->setItem(row, column, new QTableWidgetItem(values.at(column)));
+    };
+    for (const auto &value : orders) {
+        const QJsonObject order = value.toObject();
+        const QString status = order.value("status").toString();
+        const bool active = status == "STARTING" || status == "CHARGING" || status == "PENDING_PAYMENT";
+        if (active) {
+            appendOrder(m_activeOrdersTable, order);
+            if (activeId == 0 && status == "CHARGING")
+                activeId = order.value("id").toVariant().toLongLong();
+        } else {
+            appendOrder(m_historyOrdersTable, order);
+            ++historyCount;
+        }
+    }
+    m_orderId = activeId;
+    m_orderSummaryLabel->setText(QStringLiteral("共 %1 条").arg(historyCount));
+    m_homeOrderCountLabel->setText(QString::number(orders.size()));
+    if (m_activeOrdersTable->rowCount() > 0) {
+        m_homeActiveOrderLabel->setText(QStringLiteral("%1 个进行中").arg(m_activeOrdersTable->rowCount()));
+        if (activeId > 0) ui->chargeStatusLabel->setText(QStringLiteral("充电中，订单 %1").arg(activeId));
+    } else {
+        m_homeActiveOrderLabel->setText(QStringLiteral("暂无进行中订单"));
+        ui->chargeStatusLabel->setText(QStringLiteral("当前无充电订单"));
+    }
+}
+
 UserWindow::~UserWindow(){
     if(m_socket && m_ownsSocket) delete m_socket;
     delete ui;
@@ -158,6 +428,8 @@ void UserWindow::setConnection(QSslSocket *socket, qint64 userId, const QString 
     m_password = password;
     m_buffer.clear();
     ui->welcomeLabel->setText(nickname + "  余额 ¥" + QString::number(balance, 'f', 2));
+    if (m_homeGreetingLabel)
+        m_homeGreetingLabel->setText(QStringLiteral("你好，%1 · 当前余额 ¥%2").arg(nickname).arg(balance, 0, 'f', 2));
     updateConnectionStatus();
     connect(m_socket, &QSslSocket::readyRead, this, &UserWindow::readMessages);
     connect(m_socket, &QSslSocket::disconnected, this, [this]{
@@ -526,16 +798,19 @@ void UserWindow::showResult(const QJsonObject &m)
     if(type=="auth.user.result"){
         m_userId=data.value("id").toVariant().toLongLong();
         ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));
+        if(m_homeGreetingLabel) m_homeGreetingLabel->setText(QStringLiteral("你好，%1 · 当前余额 ¥%2")
+            .arg(data.value("nickname").toString()).arg(data.value("balance").toDouble(),0,'f',2));
         updateConnectionStatus();
         refreshStations();
         sendRequest("user.orders");
         QMessageBox::information(this, "成功", "已重新连接服务器");
         return;
     }
-    if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
-    else if(type=="user.info.result"){ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));}
+    if(type=="wallet.recharge.result"){ui->welcomeLabel->setText("余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));if(m_homeGreetingLabel)m_homeGreetingLabel->setText(ui->welcomeLabel->text());}
+    else if(type=="user.info.result"){ui->welcomeLabel->setText(data.value("nickname").toString()+"  余额 ¥"+QString::number(data.value("balance").toDouble(),'f',2));if(m_homeGreetingLabel)m_homeGreetingLabel->setText(ui->welcomeLabel->text());}
     else if(type=="station.list.result"){
         const QJsonArray rows=data.value("stations").toArray();
+        if(m_homeStationCountLabel) m_homeStationCountLabel->setText(QString::number(rows.size()));
         ui->stationTable->setRowCount(rows.size());
         m_stationCoords.clear();
         for(int r=0;r<rows.size();++r){
@@ -560,6 +835,7 @@ void UserWindow::showResult(const QJsonObject &m)
             const int r2=r; connect(btn,&QPushButton::clicked,this,[this,r2]{navigateToStation(r2);});
         }
         renderStationMarkers();
+        if(m_stationSearchEdit) filterStations(m_stationSearchEdit->text());
         if(m_selectedStationId>0){
             if(m_stationCoords.contains(m_selectedStationId)){
                 sendRequest("station.chargers",{{"stationId",m_selectedStationId}});
@@ -585,10 +861,10 @@ void UserWindow::showResult(const QJsonObject &m)
             if(!idle) ui->chargerCombo->setItemData(ui->chargerCombo->count()-1,false,Qt::UserRole-1);
         }
     }
-    else if(type=="user.orders.result"){qint64 activeId=0;for(const auto &value:data.value("items").toArray()){const QJsonObject order=value.toObject();if(order.value("status").toString()=="CHARGING"){activeId=order.value("id").toVariant().toLongLong();break;}}if(activeId>0){m_orderId=activeId;ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}else if(m_orderId>0){m_orderId=0;ui->chargeStatusLabel->setText("当前无充电订单");}}
+    else if(type=="user.orders.result"){populateOrderTables(data.value("items").toArray());}
     else if(type=="reservation.create.result"){m_reservationId=data.value("reservationId").toVariant().toLongLong();QMessageBox::information(this,"预约成功","预约有效期 20 分钟");}
     else if(type=="reservation.cancel.result"){m_reservationId=0;QMessageBox::information(this,"预约已取消","订单已取消");refreshStations();}
-    else if(type=="charge.start.result"){m_orderId=data.value("orderId").toVariant().toLongLong();ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));}
-    else if(type=="charge.stop.result"){ui->chargeStatusLabel->setText("已完成，费用 ¥"+QString::number(data.value("amount").toDouble(),'f',2));m_orderId=0;}
-    else if(type=="charge.completed"){ui->chargeStatusLabel->setText("充电目标已完成，费用 ¥"+QString::number(data.value("amount").toDouble(),'f',2));m_orderId=0;QMessageBox::information(this,"充电完成","充电桩已达到设定目标并完成结算");}
+    else if(type=="charge.start.result"){m_orderId=data.value("orderId").toVariant().toLongLong();ui->chargeStatusLabel->setText("充电中，订单 "+QString::number(m_orderId));sendRequest("user.orders");}
+    else if(type=="charge.stop.result"){ui->chargeStatusLabel->setText("已完成，费用 ¥"+QString::number(data.value("amount").toDouble(),'f',2));m_orderId=0;sendRequest("user.orders");}
+    else if(type=="charge.completed"){ui->chargeStatusLabel->setText("充电目标已完成，费用 ¥"+QString::number(data.value("amount").toDouble(),'f',2));m_orderId=0;sendRequest("user.orders");QMessageBox::information(this,"充电完成","充电桩已达到设定目标并完成结算");}
 }

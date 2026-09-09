@@ -5,10 +5,16 @@
 #include <QJsonObject>
 #include <QMap>
 #include <QJsonArray>
+#include <QList>
 #include <QNetworkAccessManager>
 #include <QTimer>
 class QWebEngineView;
 class QWebChannel;
+class QLabel;
+class QLineEdit;
+class QPushButton;
+class QStackedWidget;
+class QTableWidget;
 class MapBridge;
 class MapHttpServer;
 namespace Ui { class UserWindow; }
@@ -23,6 +29,10 @@ signals:
 private slots: void readMessages(); void recharge(); void refreshStations(); void refreshAll(); void reserve(); void cancelReservation(); void startCharge(); void stopCharge();
     void navigateToStation(int row); void reconnect(); void updateConnectionStatus(); void onTlsConnected(); void onTlsSslErrors(const QList<QSslError> &errors);
 private: void sendRequest(const QString &type,const QJsonObject &payload={}); void showResult(const QJsonObject &message);
+    void setupDesktopWorkspace();
+    void showWorkspacePage(int index);
+    void filterStations(const QString &keyword);
+    void populateOrderTables(const QJsonArray &orders);
     QString mapApiKey() const;
     void requestMapConfig();
     void requestRoute(const QString &fromLat,const QString &fromLng);
@@ -48,6 +58,16 @@ private: void sendRequest(const QString &type,const QJsonObject &payload={}); vo
     MapHttpServer *m_mapServer=nullptr;
     bool m_mapJsReady=false;
     bool m_mapPageLoaded=false;
+    QStackedWidget *m_contentPages=nullptr;
+    QTableWidget *m_activeOrdersTable=nullptr;
+    QTableWidget *m_historyOrdersTable=nullptr;
+    QLineEdit *m_stationSearchEdit=nullptr;
+    QLabel *m_homeGreetingLabel=nullptr;
+    QLabel *m_homeActiveOrderLabel=nullptr;
+    QLabel *m_homeStationCountLabel=nullptr;
+    QLabel *m_homeOrderCountLabel=nullptr;
+    QLabel *m_orderSummaryLabel=nullptr;
+    QList<QPushButton *> m_workspaceButtons;
     QTimer *m_suggestionTimer=nullptr;
     QTimer *m_refreshTimer=nullptr;
     struct PendingRoute { QString fromLat,fromLng,toLat,toLng; QJsonArray polyline; };
