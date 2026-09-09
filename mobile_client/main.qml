@@ -62,8 +62,8 @@ ApplicationWindow {
     }
 
     Timer { id: liveTimer; interval: 3000; repeat: true; triggeredOnStart: true; running: mobileClient.charging; onTriggered: mobileClient.refreshChargeStatus() }
-    Timer { id: stationTimer; interval: 15000; repeat: true; running: window.currentTab === 1 && mobileClient.connected && mobileClient.selectedIndex < 0; onTriggered: mobileClient.refreshStations() }
-    Timer { id: orderTimer; interval: 30000; repeat: true; running: window.currentTab === 3 && mobileClient.loggedIn; onTriggered: mobileClient.refreshOrders() }
+    Timer { id: stationTimer; interval: 3000; repeat: true; running: window.currentTab === 1 && mobileClient.connected && mobileClient.selectedIndex < 0; onTriggered: mobileClient.refreshStations() }
+    Timer { id: orderTimer; interval: 3000; repeat: true; running: window.currentTab === 3 && mobileClient.loggedIn; onTriggered: mobileClient.refreshOrders() }
 
     header: Rectangle {
         height: 100
