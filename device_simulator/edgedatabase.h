@@ -32,6 +32,12 @@ public:
     double chargerRatedPower(const QString &chargerCode,QString *error);
     bool addChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error);
     bool removeChargerByCode(const QString &code,QString *error=nullptr);
+    bool updateChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error);
+    QStringList removeChargersNotIn(const QStringList &codes,QString *error);
+    QStringList removeEmptyStations(QString *error);
+    bool addStationFromServer(const QString &name,QString *error);
+    bool updateStationName(const QString &oldName,const QString &newName,QString *error);
+    QStringList removeStationByName(const QString &name,QString *error);
 private:
     QSqlDatabase m_db;
     QJsonObject orderObject(qint64 centralOrderId,QString *error);

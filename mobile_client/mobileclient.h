@@ -2,7 +2,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include <QSslSocket>
-#include <QVariantList>
+#include <QVariant>
 
 class MobileClient : public QObject
 {

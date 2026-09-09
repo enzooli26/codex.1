@@ -259,7 +259,108 @@ bool EdgeDatabase::addChargerFromServer(const QString &code,const QString &type,
 
 bool EdgeDatabase::removeChargerByCode(const QString &code,QString *error)
 {
-    QSqlQuery q(m_db);q.prepare("DELETE FROM chargers WHERE code=?");q.addBindValue(code);
+    QSqlQuery findId(m_db);findId.prepare("SELECT id FROM chargers WHERE code=?");findId.addBindValue(code);
+    if(!findId.exec()||!findId.next()){if(error&&error->isEmpty())*error="充电桩不存在";return false;}
+    const qint64 chargerId=findId.value(0).toLongLong();
+    if(!m_db.transaction()){if(error)*error=m_db.lastError().text();return false;}
+    QSqlQuery delTel(m_db);delTel.prepare("DELETE FROM telemetry WHERE charger_id=?");delTel.addBindValue(chargerId);
+    if(!delTel.exec()){m_db.rollback();if(error)*error=delTel.lastError().text();return false;}
+    QSqlQuery delOrd(m_db);delOrd.prepare("DELETE FROM charge_orders WHERE charger_id=?");delOrd.addBindValue(chargerId);
+    if(!delOrd.exec()){m_db.rollback();if(error)*error=delOrd.lastError().text();return false;}
+    QSqlQuery delCh(m_db);delCh.prepare("DELETE FROM chargers WHERE id=?");delCh.addBindValue(chargerId);
+    if(!delCh.exec()){m_db.rollback();if(error)*error=delCh.lastError().text();return false;}
+    if(!m_db.commit()){m_db.rollback();if(error)*error=m_db.lastError().text();return false;}
+    return true;
+}
+
+bool EdgeDatabase::updateChargerFromServer(const QString &code,const QString &type,double ratedPower,const QString &stationName,QString *error)
+{
+    qint64 stationId=-1;
+    QSqlQuery findStation(m_db);findStation.prepare("SELECT id FROM stations WHERE name=?");findStation.addBindValue(stationName);
+    if(findStation.exec()&&findStation.next()){stationId=findStation.value(0).toLongLong();}
+    else{
+        QSqlQuery createStation(m_db);createStation.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");createStation.addBindValue(stationName);
+        if(!createStation.exec()){if(error)*error=createStation.lastError().text();return false;}
+        QSqlQuery getId(m_db);getId.prepare("SELECT id FROM stations WHERE name=?");getId.addBindValue(stationName);
+        if(getId.exec()&&getId.next())stationId=getId.value(0).toLongLong();
+    }
+    QSqlQuery q(m_db);q.prepare("UPDATE chargers SET type=?,rated_power=?,station_id=? WHERE code=?");
+    q.addBindValue(type.isEmpty()?"FAST":type);
+    q.addBindValue(ratedPower>0?ratedPower:120);
+    q.addBindValue(stationId);
+    q.addBindValue(code);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return q.numRowsAffected()==1;
+}
+
+QStringList EdgeDatabase::removeChargersNotIn(const QStringList &codes,QString *error)
+{
+    QStringList removed;
+    QSqlQuery all(m_db);
+    if(!all.exec("SELECT code FROM chargers")){if(error)*error=all.lastError().text();return removed;}
+    QStringList localCodes;
+    while(all.next())localCodes.append(all.value(0).toString());
+    for(const QString &code:localCodes){
+        if(!codes.contains(code)){
+            QString e;
+            if(removeChargerByCode(code, &e)) removed.append(code);
+            else if(error&&error->isEmpty())*error=e;
+        }
+    }
+    return removed;
+}
+
+QStringList EdgeDatabase::removeEmptyStations(QString *error)
+{
+    QStringList removed;
+    QSqlQuery q(m_db);
+    if(!q.exec("SELECT s.name FROM stations s WHERE (SELECT COUNT(*) FROM chargers c WHERE c.station_id=s.id)=0")){
+        if(error)*error=q.lastError().text();return removed;
+    }
+    QStringList names;
+    while(q.next())names.append(q.value(0).toString());
+    for(const QString &name:names){
+        QSqlQuery del(m_db);del.prepare("DELETE FROM stations WHERE name=?");del.addBindValue(name);
+        if(del.exec())removed.append(name);
+        else if(error&&error->isEmpty())*error=del.lastError().text();
+    }
+    return removed;
+}
+
+bool EdgeDatabase::addStationFromServer(const QString &name,QString *error)
+{
+    if(name.isEmpty()){if(error)*error="站点名称不能为空";return false;}
+    QSqlQuery q(m_db);q.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");q.addBindValue(name);
     if(!q.exec()){if(error)*error=q.lastError().text();return false;}
     return true;
+}
+
+bool EdgeDatabase::updateStationName(const QString &oldName,const QString &newName,QString *error)
+{
+    if(oldName.isEmpty()||newName.isEmpty()){if(error)*error="站点名称不能为空";return false;}
+    QSqlQuery q(m_db);q.prepare("UPDATE stations SET name=? WHERE name=?");
+    q.addBindValue(newName);q.addBindValue(oldName);
+    if(!q.exec()){if(error)*error=q.lastError().text();return false;}
+    return q.numRowsAffected()==1;
+}
+
+QStringList EdgeDatabase::removeStationByName(const QString &name,QString *error)
+{
+    QStringList removedChargers;
+    if(name.isEmpty()){if(error)*error="站点名称不能为空";return removedChargers;}
+    QSqlQuery findId(m_db);findId.prepare("SELECT id FROM stations WHERE name=?");findId.addBindValue(name);
+    if(!findId.exec()||!findId.next()){if(error&&error->isEmpty())*error="站点不存在";return removedChargers;}
+    const qint64 stationId=findId.value(0).toLongLong();
+    QSqlQuery chargersQ(m_db);chargersQ.prepare("SELECT code FROM chargers WHERE station_id=?");chargersQ.addBindValue(stationId);
+    if(chargersQ.exec()){
+        while(chargersQ.next()){
+            const QString code=chargersQ.value(0).toString();
+            QString e;
+            if(removeChargerByCode(code, &e)) removedChargers.append(code);
+            else if(error&&error->isEmpty())*error=e;
+        }
+    }
+    QSqlQuery delS(m_db);delS.prepare("DELETE FROM stations WHERE id=?");delS.addBindValue(stationId);
+    if(!delS.exec()){if(error&&error->isEmpty())*error=delS.lastError().text();return removedChargers;}
+    return removedChargers;
 }

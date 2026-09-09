@@ -30,3 +30,5 @@ __pycache__/
 Thumbs.db
 config/app.ini
 config/server-key.pem
+config/
+*.md
