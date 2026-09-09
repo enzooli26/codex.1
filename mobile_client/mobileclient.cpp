@@ -58,11 +58,39 @@ void MobileClient::registerUser(const QString &phone,const QString &password,con
 void MobileClient::recharge(double amount,const QString &password){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}if(password.isEmpty()){emit notice(QStringLiteral("请输入登录密码确认充值"),true);return;}send(QStringLiteral("wallet.recharge"),{{QStringLiteral("amount"),amount},{QStringLiteral("password"),password}});}
 void MobileClient::refreshStations(){send(QStringLiteral("station.list"));}
 void MobileClient::refreshOrders(){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}send(QStringLiteral("user.orders"));}
-void MobileClient::selectStation(int index){if(index<0||index>=m_stations.size())return;m_selectedIndex=index;emit selectedIndexChanged();}
-qint64 MobileClient::selectedChargerId() const{return m_selectedIndex>=0&&m_selectedIndex<m_stations.size()?m_stations.at(m_selectedIndex).toMap().value(QStringLiteral("chargerId")).toLongLong():0;}
-void MobileClient::reserve(){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}const qint64 id=selectedChargerId();if(id<=0){emit notice(QStringLiteral("请选择有空闲电桩的站点"),true);return;}send(QStringLiteral("reservation.create"),{{QStringLiteral("chargerId"),id}});}
+void MobileClient::selectStation(int index)
+{
+    if(index<0||index>=m_stations.size())return;
+    m_selectedIndex=index;
+    m_chargers.clear();
+    m_selectedChargerIndex=-1;
+    emit selectedIndexChanged();
+    emit chargersChanged();
+    emit selectedChargerIndexChanged();
+    const qint64 stationId=m_stations.at(index).toMap().value(QStringLiteral("id")).toLongLong();
+    if(stationId>0)send(QStringLiteral("station.chargers"),{{QStringLiteral("stationId"),stationId}});
+}
+void MobileClient::selectCharger(int index)
+{
+    if(index<0||index>=m_chargers.size())return;
+    if(!m_chargers.at(index).toMap().value(QStringLiteral("available")).toBool())return;
+    m_selectedChargerIndex=index;
+    emit selectedChargerIndexChanged();
+}
+void MobileClient::backToStations()
+{
+    if(m_selectedIndex<0)return;
+    m_selectedIndex=-1;
+    m_selectedChargerIndex=-1;
+    m_chargers.clear();
+    emit selectedIndexChanged();
+    emit chargersChanged();
+    emit selectedChargerIndexChanged();
+}
+qint64 MobileClient::selectedChargerId() const{return (m_selectedChargerIndex>=0&&m_selectedChargerIndex<m_chargers.size())?m_chargers.at(m_selectedChargerIndex).toMap().value(QStringLiteral("id")).toLongLong():0;}
+void MobileClient::reserve(){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}const qint64 id=selectedChargerId();if(id<=0){emit notice(QStringLiteral("请先选择空闲充电桩"),true);return;}m_reservationChargerId=id;send(QStringLiteral("reservation.create"),{{QStringLiteral("chargerId"),id}});}
 void MobileClient::cancelReservation(){if(m_reservationId<=0){emit notice(QStringLiteral("当前没有有效预约"),true);return;}send(QStringLiteral("reservation.cancel"),{{QStringLiteral("reservationId"),m_reservationId},{QStringLiteral("reason"),QStringLiteral("USER_CANCELLED")}});}
-void MobileClient::startCharge(const QString &mode,double target){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}const qint64 id=selectedChargerId();if(id<=0||target<=0){emit notice(QStringLiteral("请选择站点并填写充电目标"),true);return;}send(QStringLiteral("charge.start"),{{QStringLiteral("chargerId"),id},{QStringLiteral("mode"),mode},{QStringLiteral("target"),target}});}
+void MobileClient::startCharge(const QString &mode,double target){if(!loggedIn()){emit notice(QStringLiteral("请先登录"),true);return;}qint64 id=selectedChargerId();if(id<=0&&m_reservationId>0)id=m_reservationChargerId;if(id<=0||target<=0){emit notice(QStringLiteral("请先选择充电桩并填写充电目标"),true);return;}send(QStringLiteral("charge.start"),{{QStringLiteral("chargerId"),id},{QStringLiteral("mode"),mode},{QStringLiteral("target"),target}});}
 void MobileClient::stopCharge(){if(m_orderId<=0){emit notice(QStringLiteral("当前没有充电订单"),true);return;}send(QStringLiteral("charge.stop"),{{QStringLiteral("orderId"),m_orderId}});}
 void MobileClient::refreshChargeStatus(){if(m_orderId<=0)return;send(QStringLiteral("charge.status"),{{QStringLiteral("orderId"),m_orderId}});}
 
@@ -77,11 +105,12 @@ void MobileClient::handle(const QJsonObject &m)
     const QString type=m.value(QStringLiteral("type")).toString();const QJsonObject d=type==QStringLiteral("charge.completed")?m.value(QStringLiteral("payload")).toObject():m.value(QStringLiteral("data")).toObject();
     if(type==QStringLiteral("auth.user.result")||type==QStringLiteral("auth.user.register.result")){m_userId=d.value("id").toVariant().toLongLong();m_userText=d.value("nickname").toString();m_balance=d.value("balance").toDouble();saveSettings();emit loggedInChanged();emit accountChanged();refreshStations();refreshOrders();emit notice(type.contains("register")?QStringLiteral("注册成功并已登录"):QStringLiteral("登录成功"),false);}
     else if(type==QStringLiteral("wallet.recharge.result")){m_balance=d.value("balance").toDouble();emit accountChanged();emit notice(QStringLiteral("充值成功"),false);}
-    else if(type==QStringLiteral("station.list.result")){m_stations.clear();for(const auto &v:d.value("stations").toArray()){const auto s=v.toObject();QVariantMap row;row["name"]=s.value("name").toString();row["address"]=s.value("address").toString();row["price"]=s.value("price").toDouble();row["idle"]=s.value("idle").toInt();row["total"]=s.value("total").toInt();row["chargerId"]=s.value("chargerId").toVariant();row["longitude"]=s.value("longitude").toDouble();row["latitude"]=s.value("latitude").toDouble();m_stations.append(row);}m_selectedIndex=-1;emit stationsChanged();emit selectedIndexChanged();}
+    else if(type==QStringLiteral("station.list.result")){m_stations.clear();for(const auto &v:d.value("stations").toArray()){const auto s=v.toObject();QVariantMap row;row["id"]=s.value("id").toVariant();row["name"]=s.value("name").toString();row["address"]=s.value("address").toString();row["price"]=s.value("price").toDouble();row["idle"]=s.value("idle").toInt();row["total"]=s.value("total").toInt();row["chargerId"]=s.value("chargerId").toVariant();row["longitude"]=s.value("longitude").toDouble();row["latitude"]=s.value("latitude").toDouble();m_stations.append(row);}m_selectedIndex=-1;m_chargers.clear();m_selectedChargerIndex=-1;emit stationsChanged();emit chargersChanged();emit selectedIndexChanged();emit selectedChargerIndexChanged();}
+    else if(type==QStringLiteral("station.chargers.result")){m_chargers.clear();for(const auto &v:d.value("chargers").toArray()){const auto c=v.toObject();QVariantMap row;row["id"]=c.value("id").toVariant();row["code"]=c.value("code").toString();row["type"]=c.value("type").toString();row["rated_power"]=c.value("rated_power").toVariant();row["status"]=c.value("status").toString();row["available"]=c.value("status").toString()==QStringLiteral("IDLE");m_chargers.append(row);}m_selectedChargerIndex=-1;emit chargersChanged();emit selectedChargerIndexChanged();}
     else if(type==QStringLiteral("user.orders.result")){m_orders.clear();qint64 active=0;for(const auto &v:d.value("items").toArray()){const QJsonObject order=v.toObject();m_orders.append(order.toVariantMap());if(order.value("status").toString()==QStringLiteral("CHARGING"))active=order.value("id").toVariant().toLongLong();}if(active!=m_orderId){m_orderId=active;m_chargeStatus=active>0?QStringLiteral("正在充电 · 订单 #%1").arg(active):m_chargeStatus;emit chargeChanged();}emit ordersChanged();}
     else if(type==QStringLiteral("reservation.create.result")){m_reservationId=d.value("reservationId").toVariant().toLongLong();emit reservationChanged();emit notice(QStringLiteral("预约成功，20 分钟内有效"),false);}
-    else if(type==QStringLiteral("reservation.cancel.result")){m_reservationId=0;emit reservationChanged();emit notice(QStringLiteral("预约已取消"),false);refreshStations();}
-    else if(type==QStringLiteral("charge.start.result")){m_orderId=d.value("orderId").toVariant().toLongLong();m_reservationId=0;m_chargeStatus=QStringLiteral("正在充电 · 订单 #%1").arg(m_orderId);m_livePower=0;m_liveSoc=0;m_liveEnergy=0;m_liveDuration=0;m_liveCost=0;emit liveChanged();emit chargeChanged();emit reservationChanged();emit notice(QStringLiteral("充电已启动"),false);}
+    else if(type==QStringLiteral("reservation.cancel.result")){m_reservationId=0;m_reservationChargerId=0;emit reservationChanged();emit notice(QStringLiteral("预约已取消"),false);refreshStations();}
+    else if(type==QStringLiteral("charge.start.result")){m_orderId=d.value("orderId").toVariant().toLongLong();m_reservationId=0;m_reservationChargerId=0;m_chargeStatus=QStringLiteral("正在充电 · 订单 #%1").arg(m_orderId);m_livePower=0;m_liveSoc=0;m_liveEnergy=0;m_liveDuration=0;m_liveCost=0;emit liveChanged();emit chargeChanged();emit reservationChanged();emit notice(QStringLiteral("充电已启动"),false);}
     else if(type==QStringLiteral("charge.stop.result")){m_chargeStatus=QStringLiteral("充电完成 · %1 kWh · ¥%2").arg(d.value("energy").toDouble(),0,'f',2).arg(d.value("amount").toDouble(),0,'f',2);m_orderId=0;emit chargeChanged();notifyAndroid(QStringLiteral("充电已停止"),m_chargeStatus);emit notice(QStringLiteral("停止成功，订单已结算"),false);refreshStations();refreshOrders();}
     else if(type==QStringLiteral("charge.completed")){m_chargeStatus=QStringLiteral("目标完成 · %1 kWh · ¥%2").arg(d.value("energy").toDouble(),0,'f',2).arg(d.value("amount").toDouble(),0,'f',2);m_orderId=0;emit chargeChanged();notifyAndroid(QStringLiteral("充电已完成"),m_chargeStatus);emit notice(QStringLiteral("已达到充电目标并完成结算"),false);refreshStations();refreshOrders();}
     else if(type==QStringLiteral("charge.status.result")){m_livePower=d.value("power").toDouble();m_liveSoc=d.value("soc").toDouble();m_liveEnergy=d.value("energy").toDouble();m_liveDuration=d.value("duration").toInt();m_liveCost=d.value("estAmount").toDouble();emit liveChanged();}

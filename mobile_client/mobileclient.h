@@ -14,7 +14,9 @@ class MobileClient : public QObject
     Q_PROPERTY(double balance READ balance NOTIFY accountChanged)
     Q_PROPERTY(QVariantList stations READ stations NOTIFY stationsChanged)
     Q_PROPERTY(QVariantList orders READ orders NOTIFY ordersChanged)
+    Q_PROPERTY(QVariantList chargers READ chargers NOTIFY chargersChanged)
     Q_PROPERTY(int selectedIndex READ selectedIndex NOTIFY selectedIndexChanged)
+    Q_PROPERTY(int selectedChargerIndex READ selectedChargerIndex NOTIFY selectedChargerIndexChanged)
     Q_PROPERTY(QString chargeStatus READ chargeStatus NOTIFY chargeChanged)
     Q_PROPERTY(bool charging READ charging NOTIFY chargeChanged)
     Q_PROPERTY(bool reserved READ reserved NOTIFY reservationChanged)
@@ -36,7 +38,9 @@ public:
     double balance() const{return m_balance;}
     QVariantList stations() const{return m_stations;}
     QVariantList orders() const{return m_orders;}
+    QVariantList chargers() const{return m_chargers;}
     int selectedIndex() const{return m_selectedIndex;}
+    int selectedChargerIndex() const{return m_selectedChargerIndex;}
     QString chargeStatus() const{return m_chargeStatus;}
     bool charging() const{return m_orderId>0;}
     bool reserved() const{return m_reservationId>0;}
@@ -56,6 +60,8 @@ public:
     Q_INVOKABLE void refreshStations();
     Q_INVOKABLE void refreshOrders();
     Q_INVOKABLE void selectStation(int index);
+    Q_INVOKABLE void selectCharger(int index);
+    Q_INVOKABLE void backToStations();
     Q_INVOKABLE void reserve();
     Q_INVOKABLE void cancelReservation();
     Q_INVOKABLE void startCharge(const QString &mode,double target);
@@ -64,7 +70,8 @@ public:
 
 signals:
     void connectedChanged(); void loggedInChanged(); void accountChanged();
-    void stationsChanged(); void ordersChanged(); void selectedIndexChanged(); void chargeChanged();
+    void stationsChanged(); void ordersChanged(); void chargersChanged();
+    void selectedIndexChanged(); void selectedChargerIndexChanged(); void chargeChanged();
     void reservationChanged(); void liveChanged(); void notice(const QString &text,bool error);
 
 private slots:
@@ -75,8 +82,9 @@ private:
     qint64 selectedChargerId() const;
     void notifyAndroid(const QString &title,const QString &text);
     void saveSettings();
-    QSslSocket m_socket; QByteArray m_buffer; QVariantList m_stations,m_orders;
-    qint64 m_userId=0,m_reservationId=0,m_orderId=0; int m_selectedIndex=-1;
+    QSslSocket m_socket; QByteArray m_buffer; QVariantList m_stations,m_orders,m_chargers;
+    qint64 m_userId=0,m_reservationId=0,m_reservationChargerId=0,m_orderId=0;
+    int m_selectedIndex=-1,m_selectedChargerIndex=-1;
     double m_balance=0; QString m_userText=QStringLiteral("请先登录");
     QString m_chargeStatus=QStringLiteral("尚未开始充电");
     QString m_savedHost; int m_savedPort=0; QString m_savedPhone;

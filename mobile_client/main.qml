@@ -31,6 +31,14 @@ ApplicationWindow {
     property var pageTitles: ["首页", "附近充电站", "充电中心", "我的"]
     property var pageSubs: ["把每一度电用在路上", "附近空闲充电桩一目了然", "充电进度尽在掌握", "账户、订单与外观"]
 
+    function selectedStationName() {
+        if (mobileClient.selectedIndex < 0) return ""
+        var stations = mobileClient.stations
+        if (!stations || mobileClient.selectedIndex >= stations.length) return ""
+        var s = stations[mobileClient.selectedIndex]
+        return s ? String(s.name || "") : ""
+    }
+
     function orderStatusText(s) {
         if (s === "COMPLETED") return "已完成"
         if (s === "CHARGING") return "充电中"
@@ -54,6 +62,8 @@ ApplicationWindow {
     }
 
     Timer { id: liveTimer; interval: 3000; repeat: true; triggeredOnStart: true; running: mobileClient.charging; onTriggered: mobileClient.refreshChargeStatus() }
+    Timer { id: stationTimer; interval: 15000; repeat: true; running: window.currentTab === 1 && mobileClient.connected && mobileClient.selectedIndex < 0; onTriggered: mobileClient.refreshStations() }
+    Timer { id: orderTimer; interval: 30000; repeat: true; running: window.currentTab === 3 && mobileClient.loggedIn; onTriggered: mobileClient.refreshOrders() }
 
     header: Rectangle {
         height: 100
@@ -314,6 +324,7 @@ ApplicationWindow {
                 spacing: 10
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: mobileClient.selectedIndex < 0
                     Label { text: "附近充电站"; color: ink; font.pixelSize: 20; font.bold: true }
                     Item { Layout.fillWidth: true }
                     Rectangle {
@@ -338,11 +349,44 @@ ApplicationWindow {
                         onClicked: mobileClient.refreshStations()
                     }
                 }
-                Label { text: "点击卡片选择站点，选好后可发起导航或充电"; color: muted; font.pixelSize: 12 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: mobileClient.selectedIndex >= 0
+                    Button {
+                        text: "‹ 返回站点"
+                        flat: true
+                        font.pixelSize: 15
+                        onClicked: mobileClient.backToStations()
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        text: selectedStationName()
+                        color: ink
+                        font.pixelSize: 18
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                    Rectangle {
+                        Layout.preferredHeight: 28
+                        Layout.preferredWidth: chargerCountText.implicitWidth + 22
+                        radius: 14
+                        color: accentSoft
+                        Label {
+                            id: chargerCountText
+                            anchors.centerIn: parent
+                            text: mobileClient.chargers.length + " 个充电桩"
+                            color: primary
+                            font.pixelSize: 12
+                            font.bold: true
+                        }
+                    }
+                }
+                Label { text: mobileClient.selectedIndex < 0 ? "点击站点查看充电桩，选好站桩后可发起导航或充电" : "点击选择空闲充电桩，选好后即可前往充电中心"; color: muted; font.pixelSize: 12 }
                 ListView {
                     id: stationList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    visible: mobileClient.selectedIndex < 0
                     spacing: 12
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -449,11 +493,128 @@ ApplicationWindow {
                         color: muted
                     }
                 }
+                ListView {
+                    id: chargerList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: mobileClient.selectedIndex >= 0
+                    spacing: 12
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: mobileClient.chargers
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                    delegate: Rectangle {
+                        id: chargerCard
+                        width: chargerList.width
+                        height: 104
+                        radius: 20
+                        color: theme.card
+                        border.width: index === mobileClient.selectedChargerIndex ? 2 : 1
+                        border.color: index === mobileClient.selectedChargerIndex ? primary : theme.border
+                        opacity: modelData.available ? 1 : 0.6
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: mobileClient.selectCharger(index)
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 16
+                            anchors.rightMargin: 14
+                            anchors.topMargin: 14
+                            anchors.bottomMargin: 14
+                            spacing: 14
+                            Rectangle {
+                                Layout.preferredWidth: 44
+                                Layout.preferredHeight: 44
+                                radius: 14
+                                color: index === mobileClient.selectedChargerIndex ? accentSoft : softBg
+                                Layout.alignment: Qt.AlignVCenter
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: modelData.code ? String(modelData.code) : ("#" + (index + 1))
+                                    color: primary
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                }
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignVCenter
+                                spacing: 5
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: (modelData.type || "充电桩") + " · 最大功率 " + modelData.rated_power + " kW"
+                                    color: ink
+                                    font.pixelSize: 15
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+                                RowLayout {
+                                    spacing: 8
+                                    Rectangle {
+                                        Layout.preferredWidth: chargerStatusText.implicitWidth + 12
+                                        Layout.preferredHeight: 22
+                                        radius: 11
+                                        color: modelData.available ? theme.greenBg : theme.redBg
+                                        Label {
+                                            id: chargerStatusText
+                                            anchors.centerIn: parent
+                                            text: modelData.available ? "空闲" : (modelData.status === "RESERVED" ? "已被预约" : (modelData.status === "CHARGING" ? "使用中" : "不可用"))
+                                            color: modelData.available ? greenText : red
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                        }
+                                    }
+                                    Label {
+                                        text: "桩号 " + (index + 1)
+                                        color: muted
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                Layout.preferredWidth: 64
+                                Layout.preferredHeight: 34
+                                radius: 17
+                                color: index === mobileClient.selectedChargerIndex ? theme.greenBg : (modelData.available ? primary : theme.border)
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: index === mobileClient.selectedChargerIndex ? "✓ 已选" : (modelData.available ? "选择" : "不可选")
+                                    color: index === mobileClient.selectedChargerIndex ? greenText : (modelData.available ? "white" : muted)
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
+                            }
+                        }
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        visible: chargerList.count === 0
+                        text: "该站点暂无充电桩，请返回选择其他站点"
+                        color: muted
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                    }
+                }
                 Button {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 52
-                    text: mobileClient.selectedIndex >= 0 ? "已选择，前往充电" : "请先选择站点"
+                    visible: mobileClient.selectedIndex < 0
+                    text: "请先选择站点"
                     enabled: mobileClient.selectedIndex >= 0
+                    highlighted: true
+                    font.pixelSize: 16
+                    font.bold: true
+                    onClicked: window.currentTab = 2
+                }
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 52
+                    visible: mobileClient.selectedIndex >= 0
+                    text: mobileClient.selectedChargerIndex >= 0 ? "已选好充电桩，前往充电" : "请先选择充电桩"
+                    enabled: mobileClient.selectedChargerIndex >= 0
                     highlighted: true
                     font.pixelSize: 16
                     font.bold: true
@@ -560,7 +721,17 @@ ApplicationWindow {
                         anchors.fill: parent
                         anchors.margins: 18
                         spacing: 12
-                        Label { text: "充电设置"; color: ink; font.pixelSize: 18; font.bold: true }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: "充电设置"; color: ink; font.pixelSize: 18; font.bold: true }
+                            Item { Layout.fillWidth: true }
+                            Label {
+                                text: mobileClient.selectedChargerIndex >= 0 ? "已选桩 " + (mobileClient.selectedChargerIndex + 1) + " 号" : (mobileClient.selectedIndex >= 0 ? "请先选桩" : "未选站点")
+                                color: mobileClient.selectedChargerIndex >= 0 ? greenText : (mobileClient.selectedIndex >= 0 ? primary : muted)
+                                font.pixelSize: 13
+                                font.bold: true
+                            }
+                        }
                         Label { text: "充电模式"; color: muted; font.pixelSize: 12 }
                         ComboBox {
                             id: modeBox
@@ -589,8 +760,8 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 50
                             visible: !mobileClient.charging && !mobileClient.reserved
-                            text: mobileClient.loggedIn ? "预约充电桩" : "登录后即可预约"
-                            enabled: mobileClient.loggedIn && !mobileClient.reserved && !mobileClient.charging
+                            text: mobileClient.selectedChargerIndex >= 0 ? "预约该充电桩" : (mobileClient.loggedIn ? "请先选择充电桩" : "登录后即可预约")
+                            enabled: mobileClient.loggedIn && !mobileClient.reserved && !mobileClient.charging && mobileClient.selectedChargerIndex >= 0
                             font.pixelSize: 15
                             onClicked: mobileClient.reserve()
                         }
@@ -606,8 +777,8 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 52
                             visible: !mobileClient.charging
-                            text: "开始充电"
-                            enabled: mobileClient.loggedIn && !mobileClient.charging && mobileClient.selectedIndex >= 0
+                            text: mobileClient.selectedChargerIndex >= 0 || mobileClient.reserved ? "开始充电" : "请先选择充电桩"
+                            enabled: mobileClient.loggedIn && !mobileClient.charging && (mobileClient.selectedChargerIndex >= 0 || mobileClient.reserved)
                             highlighted: true
                             font.pixelSize: 16
                             font.bold: true
@@ -627,7 +798,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.leftMargin: 22
                     Layout.rightMargin: 22
-                    text: mobileClient.selectedIndex < 0 ? "请先到「找桩」页面选择站点" : "已选择站点，可以预约或直接开始充电"
+                    text: mobileClient.selectedChargerIndex >= 0 ? "已选择充电桩，可以预约或直接开始充电" : (mobileClient.reserved ? "已预约充电桩，可直接开始充电" : "请先到「找桩」页面选择站点与充电桩")
                     color: muted
                     font.pixelSize: 12
                     horizontalAlignment: Text.AlignHCenter
