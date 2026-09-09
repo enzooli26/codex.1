@@ -3,8 +3,10 @@ CONFIG += console c++11
 CONFIG -= app_bundle
 TEMPLATE = app
 TARGET = ev_server
-SOURCES += main.cpp serverapp.cpp database.cpp
-HEADERS += serverapp.h database.h
+SOURCES += main.cpp serverapp.cpp database.cpp \
+    logger.cpp
+HEADERS += serverapp.h database.h \
+    logger.h
 RESOURCES += resources.qrc
 include(../common/common.pri)
 

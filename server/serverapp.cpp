@@ -179,8 +179,8 @@ void ServerApp::onDatabaseResult(qint64 requestId, int code, const QJsonObject &
     }
     QJsonObject response = Protocol::response(pending.originalMessage, code,
                                                   error.isEmpty() ? "ok" : error, data);
-    qDebug() << "Sending response type:" << response.value("type").toString();
-       qDebug() << "Response data keys:" << response.value("data").toObject().keys();
+//    qDebug() << "Sending response type:" << response.value("type").toString();
+//       qDebug() << "Response data keys:" << response.value("data").toObject().keys();
 
     // 发送响应
     send(socket, Protocol::response(pending.originalMessage, code,
@@ -224,6 +224,13 @@ void ServerApp::readClient()
         socket->disconnectFromHost();
         return;
     }
+    for (const auto &message : messages) {
+//        qDebug() << "Message type:" << message.value("type").toString()
+//                 << "requestId:" << message.value("requestId").toString();
+
+        qDebug() << "Full message:" << QJsonDocument(message).toJson(QJsonDocument::Compact);
+    }
+    qDebug() << "========================";
     for(const auto &message : messages) {
         dispatch(socket, message);
     }
@@ -265,6 +272,14 @@ void ServerApp::removeClient()
 void ServerApp::send(QSslSocket *socket,const QJsonObject &message)
 {
     if (socket && socket->state() == QAbstractSocket::ConnectedState) {
+
+        QJsonDocument doc(message);
+                QString jsonString = QString::fromUtf8(doc.toJson(QJsonDocument::Compact));
+
+
+                qDebug().noquote() << "response:" << jsonString;
+                qDebug().noquote() << "========================";
+
         socket->write(Protocol::encode(message));
     }
 }

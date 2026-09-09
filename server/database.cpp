@@ -760,6 +760,7 @@ void Database::doRestartCharger(qint64 requestId, qint64 chargerId)
 
 void Database::doExpireReservations(qint64 requestId)
 {
+
     QString error;
     int count = expireReservations(&error);
     QJsonObject data;

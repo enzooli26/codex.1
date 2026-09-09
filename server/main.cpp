@@ -6,6 +6,7 @@
 #include <QSettings>
 #include <QDebug>
 #include "serverapp.h"
+#include "logger.h"
 
 int main(int argc, char *argv[])
 {
@@ -15,6 +16,7 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addOption({{"c", "config"}, "Configuration file", "path", "config/app.ini"});
     parser.process(app);
+
 
     const QFileInfo configInfo(parser.value("config"));
     QSettings settings(configInfo.absoluteFilePath(), QSettings::IniFormat);
@@ -43,6 +45,16 @@ int main(int argc, char *argv[])
     const QString deviceToken = settings.value("device/token", "course-device-token").toString();
     const QString mapApiKey = settings.value("map/api_key", "").toString().trimmed();
     QDir().mkpath(QFileInfo(dbPath).absolutePath());
+
+    QString logPath = settings.value("log/path", "logs/app.log").toString();
+        int maxLogFiles = settings.value("log/max_files", 10).toInt();
+        qint64 maxLogSize = settings.value("log/max_size", 10 * 1024 * 1024).toLongLong();
+
+    Logger::instance()->init(logPath, maxLogFiles, maxLogSize);
+        qInfo() << "Application started";
+        qDebug() << "Debug message";
+        qWarning() << "Warning message";
+
 
     ServerApp server;
     if (!server.start(port, dbPath, certificatePath, privateKeyPath, deviceToken, mapApiKey)) return 1;
