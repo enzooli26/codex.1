@@ -951,13 +951,24 @@ ApplicationWindow {
                                 onClicked: registerDialog.open()
                             }
                         }
-                        Button {
+                        RowLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 50
                             visible: mobileClient.loggedIn
-                            text: "账户充值"
-                            font.pixelSize: 15
-                            onClicked: rechargeDialog.open()
+                            spacing: 10
+                            Button {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 50
+                                text: "账户充值"
+                                font.pixelSize: 15
+                                onClicked: rechargeDialog.open()
+                            }
+                            Button {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 50
+                                text: "退出登录"
+                                font.pixelSize: 15
+                                onClicked: mobileClient.logout()
+                            }
                         }
                         Label {
                             Layout.fillWidth: true

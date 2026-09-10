@@ -57,6 +57,7 @@ public:
 
     Q_INVOKABLE void connectServer(const QString &host,int port);
     Q_INVOKABLE void login(const QString &phone,const QString &password);
+    Q_INVOKABLE void logout();
     Q_INVOKABLE void registerUser(const QString &phone,const QString &password,const QString &confirmPassword);
     Q_INVOKABLE void recharge(double amount,const QString &password);
     Q_INVOKABLE void refreshStations();
