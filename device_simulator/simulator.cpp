@@ -64,12 +64,13 @@ void Simulator::disconnectFromServer()
     m_manualDisconnect = true;
     m_registered = false;
     m_heartbeatFailures = 0;
-    if(m_tick) QMetaObject::invokeMethod(m_tick, "stop", Qt::QueuedConnection);
+    if(m_tick) QMetaObject::invokeMethod(m_tick, "stopHeartbeat", Qt::QueuedConnection);
     emit disconnectNetwork();
     qInfo() << "simulator manually disconnected; local charging continues";
     emit connectionChanged(false);
     m_disconnected = true;
     emit disconnectedStateChanged(m_disconnected);
+    checkDisconnection();
 }
 
 // 手动重连：重新发起网络连接

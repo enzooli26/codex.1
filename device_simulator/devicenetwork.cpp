@@ -13,6 +13,7 @@ DeviceNetwork::DeviceNetwork(QObject *parent)
     m_reconnectTimer->setSingleShot(true);
     connect(m_socket, &QSslSocket::encrypted, this, &DeviceNetwork::onEncrypted);
     connect(m_socket, &QSslSocket::readyRead, this, &DeviceNetwork::onReadyRead);
+    //如果服务端断开Qssl会自动处理，调用onDisconnected
     connect(m_socket, &QSslSocket::disconnected, this, &DeviceNetwork::onDisconnected);
     connect(m_socket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
             this, &DeviceNetwork::onSslErrors);

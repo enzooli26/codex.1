@@ -179,12 +179,15 @@ void AdminWindow::readMessages(const QJsonObject &msg)
     const auto d=msg.value("data").toObject();
     if(t=="auth.admin.result"){m_loggedIn=true;ui->adminLabel->setText("管理员: "+d.value("username").toString());ui->loginPanel->setVisible(false);refreshAll();}
     else if(t=="admin.summary.result")updateDashboard(d);
-    else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});updateStationChoices(items);}
+    else if(t=="admin.stations.result"){const auto items=d.value("items").toArray();{QSignalBlocker b(ui->stationsTable);int sr=ui->stationsTable->currentRow();fillTable(ui->stationsTable,items,{"id","name","address","longitude","latitude","price","status","total","idle","fault"});if(sr>=0&&sr<ui->stationsTable->rowCount())ui->stationsTable->selectRow(sr);}updateStationChoices(items);}
     else if(t=="admin.chargers.result"){
-        const int savedRow=ui->chargersTable->currentRow();
         const auto items=d.value("items").toArray();
-        fillTable(ui->chargersTable,items,{"id","code","station","chargerType","power","status","sessions","duration","lastSeen","voltage","current","livePower"});
-        if(savedRow>=0&&savedRow<ui->chargersTable->rowCount())ui->chargersTable->selectRow(savedRow);
+        {
+            QSignalBlocker b(ui->chargersTable);
+            const int savedRow=ui->chargersTable->currentRow();
+            fillTable(ui->chargersTable,items,{"id","code","station","chargerType","power","status","sessions","duration","lastSeen","voltage","current","livePower"});
+            if(savedRow>=0&&savedRow<ui->chargersTable->rowCount())ui->chargersTable->selectRow(savedRow);
+        }
         updateTelemetryChart(items);
     }
     else if(t=="admin.orders.result")fillTable(ui->ordersTable,d.value("items").toArray(),{"id","phone","station","charger","status","mode","target","energy","duration","amount","startAt","endAt"});

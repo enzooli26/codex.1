@@ -44,6 +44,7 @@ signals:
     void stationAdded(const QString &name);
     void stationRemoved(const QString &name);
     void stationUpdated(const QString &oldName, const QString &newName);
+    void chargerListSynced();
 
     void connectNetwork(QString host, quint16 port);
     void disconnectNetwork();

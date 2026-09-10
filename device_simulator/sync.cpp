@@ -83,6 +83,7 @@ void Simulator::stopOrder(const QString &chargerCode)
 void Simulator::syncChargerList(const QJsonArray &serverChargers)
 {
     QString err;
+    //获取本地数据库的所有数据
     QJsonArray localChargers;
     QMetaObject::invokeMethod(m_database, [this, &localChargers, &err]() {
         localChargers = m_database->chargers(&err);
@@ -167,4 +168,6 @@ void Simulator::syncChargerList(const QJsonArray &serverChargers)
         emit stationRemoved(name);
         qInfo() << "Removed empty station:" << name;
     }
+
+    emit chargerListSynced();
 }

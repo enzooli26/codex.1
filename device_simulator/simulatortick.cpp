@@ -7,8 +7,11 @@ SimulatorTick::SimulatorTick(QObject *parent)
     m_heartbeatTimer = new QTimer(this);
     m_telemetryTimer = new QTimer(this);
     m_timeoutTimer = new QTimer(this);
+    //心跳定时
     m_heartbeatTimer->setInterval(5000);
+    //遥测，持续计费在此实现
     m_telemetryTimer->setInterval(2000);
+    //超时检测
     m_timeoutTimer->setInterval(10000);
     m_timeoutTimer->setSingleShot(true);
     connect(m_heartbeatTimer, &QTimer::timeout, this, &SimulatorTick::heartbeatTick);
@@ -32,6 +35,7 @@ void SimulatorTick::stop()
     m_timeoutTimer->stop();
 }
 
+//断联期间保证计费不间断
 void SimulatorTick::stopHeartbeat()
 {
     m_heartbeatTimer->stop();

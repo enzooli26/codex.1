@@ -30,8 +30,11 @@ void Simulator::dispatch(const QJsonObject &message)
         m_registered = true;
         const QJsonArray serverChargers = message.value("data").toObject().value("chargers").toArray();
         syncChargerList(serverChargers);
+        //恢复心跳
         onHeartbeatTick();
+        //传输未处理订单
         sendSync();
+        //传输未结算订单
         syncPendingOrders();
         return;
     }
@@ -43,6 +46,7 @@ void Simulator::dispatch(const QJsonObject &message)
         }
         for(const auto &value : message.value("data").toObject().value("results").toArray()) {
             const QJsonObject item = value.toObject();
+            //将完成付款的订单标记为完成
             if(item.value("code").toInt() == 0 && item.value("status").toString() == "COMPLETED") {
                 QMetaObject::invokeMethod(m_database, [this, item, &error]() {
                     m_database->settleOrder(item.value("orderId").toVariant().toLongLong(), &error);
@@ -88,7 +92,7 @@ void Simulator::dispatch(const QJsonObject &message)
             }
         }
     }
-    // 服务端确认结算订单
+    // 服务端确认结算订单，联通状态下
     else if(type == "device.order.settled") {
         bool settled = false;
         QMetaObject::invokeMethod(m_database, [this, payload, &settled, &error]() {

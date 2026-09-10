@@ -17,7 +17,7 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
     QDir().mkpath(QFileInfo(path).absolutePath());
     m_db=QSqlDatabase::addDatabase("QSQLITE","charger-edge");m_db.setDatabaseName(path);
     if(!m_db.open()){if(error)*error=m_db.lastError().text();return false;}
-    QSqlQuery q(m_db);q.exec("PRAGMA foreign_keys=ON");q.exec("PRAGMA journal_mode=WAL");
+    QSqlQuery q(m_db);q.exec("PRAGMA foreign_keys   =ON");q.exec("PRAGMA journal_mode=WAL");
     const QStringList sql={
         "CREATE TABLE IF NOT EXISTS stations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'ONLINE')",
         "CREATE TABLE IF NOT EXISTS chargers(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER,code TEXT NOT NULL UNIQUE,type TEXT NOT NULL DEFAULT 'FAST',rated_power REAL NOT NULL DEFAULT 120,status TEXT NOT NULL DEFAULT 'IDLE',last_seen TEXT,total_sessions INTEGER NOT NULL DEFAULT 0,total_duration INTEGER NOT NULL DEFAULT 0)",
@@ -26,46 +26,7 @@ bool EdgeDatabase::open(const QString &path,const QStringList &chargerCodes,QStr
         "CREATE INDEX IF NOT EXISTS idx_edge_orders_status ON charge_orders(status)",
         "CREATE INDEX IF NOT EXISTS idx_edge_telemetry_time ON telemetry(charger_id,sampled_at)"};
     for(const QString &statement:sql)if(!q.exec(statement)){if(error)*error=q.lastError().text();return false;}
-    
-    // 清理重复站点数据
-    QSqlQuery cleanStations(m_db);
-    cleanStations.prepare("DELETE FROM stations WHERE id NOT IN (SELECT MIN(id) FROM stations GROUP BY name)");
-    cleanStations.exec();
-    
-    QSqlQuery add(m_db);add.prepare("INSERT OR IGNORE INTO chargers(code,last_seen) VALUES(?,?)");
-    QMap<QString,QString> stationMap; // prefix -> station name
-    stationMap["DL-SW-"] = "软件园充电站";
-    stationMap["DL-GX-"] = "高新园区充电站";
-    // 按编号前缀匹配站点，无匹配归入"未分组站点"
-    for(const QString &code:chargerCodes){
-        QString stationName;
-        for(auto it=stationMap.constBegin();it!=stationMap.constEnd();++it){
-            if(code.startsWith(it.key())){stationName=it.value();break;}
-        }
-        if(stationName.isEmpty())stationName="未分组站点";
-        
-        // 先确保站点存在 - 严格检查
-        QSqlQuery st(m_db);st.prepare("SELECT id FROM stations WHERE name=?");
-        st.addBindValue(stationName);
-        int stationId=0;
-        if(st.exec() && st.next()) {
-            stationId = st.value(0).toInt();
-        } else {
-            // 如果站点不存在，才插入
-            QSqlQuery insertSt(m_db);insertSt.prepare("INSERT OR IGNORE INTO stations(name) VALUES(?)");
-            insertSt.addBindValue(stationName);
-            insertSt.exec();
-            // 再获取ID
-            QSqlQuery getId(m_db);getId.prepare("SELECT id FROM stations WHERE name=?");
-            getId.addBindValue(stationName);
-            if(getId.exec() && getId.next()) stationId = getId.value(0).toInt();
-        }
-        
-        add.bindValue(0,code);add.bindValue(1,utcNow());
-        if(!add.exec()){if(error)*error=add.lastError().text();return false;}
-        QSqlQuery upd(m_db);upd.prepare("UPDATE chargers SET station_id=? WHERE code=? AND station_id IS NULL");
-        upd.bindValue(0,stationId);upd.bindValue(1,code);upd.exec();
-    }
+    Q_UNUSED(chargerCodes);
     return true;
 }
 

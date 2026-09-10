@@ -44,10 +44,11 @@ SimWindow::SimWindow(Simulator *simulator, QWidget *parent)
         buildStationList();
         if(m_currentStationId > 0) buildChargerList(m_currentStationId);
     });
+    connect(m_simulator, &Simulator::chargerListSynced, this, [this]{
+        buildStationList();
+    });
     connect(ui->toggleConnBtn, &QPushButton::clicked, this, &SimWindow::onToggleConnection);
     qDebug() << "SimWindow constructed";
-    buildStationList();
-    qDebug() << "buildStationList called from constructor";
     onConnectionChanged(m_simulator->isRegistered());
     qDebug() << "onConnectionChanged called from constructor";
 }
@@ -249,7 +250,7 @@ void SimWindow::updateChargerCard(const QString &code)
             else unit="元";
             const double target = order.value("target").toDouble();
             ol->setText(QString("订单 #%1  电量 %2 kWh  时长 %3 分  金额 ¥%4  / 目标 %5%6")
-                .arg(oid).arg(energy,0,'f',2).arg(duration).arg(amount,0,'f',2).arg(target,0,'f',1).arg(unit));
+                .arg(oid).arg(energy ,0,'f',2).arg(duration).arg(amount,0,'f',2).arg(target,0,'f',1).arg(unit));
             ol->setVisible(true);
             sb->setVisible(true);
         }
@@ -299,6 +300,7 @@ void SimWindow::onOrderChanged(const QString &chargerCode, const QJsonObject &)
     }
 }
 
+//停止充电
 void SimWindow::onStopClicked(const QString &chargerCode)
 {
     QString error;

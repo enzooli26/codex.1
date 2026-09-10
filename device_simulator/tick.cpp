@@ -7,7 +7,7 @@
 #include <QRandomGenerator>
 #include <QUuid>
 
-// 心跳定时回调：收集所有充电桩活跃订单状态，发送心跳包
+// 心跳定时回调：收集所有充电桩活跃订单状态，发送心跳包,向服务器更新数据
 void Simulator::onHeartbeatTick()
 {
     if(!m_registered) return;
@@ -36,6 +36,7 @@ void Simulator::onHeartbeatTick()
     m_heartbeatFailures = 0;
 }
 
+//计费和模拟信号在此实现
 // 遥测定时回调：模拟电压/电流/功率/SOC，更新订单能耗
 void Simulator::onTelemetryTick()
 {

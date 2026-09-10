@@ -11,6 +11,7 @@
 void Simulator::onNetworkConnected()
 {
     m_registered = false;
+    //启动所有定时器
     if(m_tick) QMetaObject::invokeMethod(m_tick, "start", Qt::QueuedConnection);
     QString error;
     QJsonArray chargers;
@@ -28,6 +29,7 @@ void Simulator::onNetworkConnected()
 void Simulator::onNetworkDisconnected()
 {
     m_registered = false;
+    //停止心跳包但不停止计费
     if(m_tick) QMetaObject::invokeMethod(m_tick, "stopHeartbeat", Qt::QueuedConnection);
     qWarning() << "central server disconnected; local charging and metering continue";
     emit connectionChanged(false);
