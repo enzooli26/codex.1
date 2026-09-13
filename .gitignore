@@ -32,3 +32,6 @@ config/app.ini
 config/server-key.pem
 config/
 *.md
+web/node_modules/
+web/dist/
+server/logs/
